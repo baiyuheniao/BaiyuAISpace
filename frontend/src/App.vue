@@ -102,5 +102,9 @@ export default {
   max-width: 1200px;
   margin: 0 auto;
 }
+<<<<<<< HEAD
 </style>
 //你写注释了吗？
+=======
+</style>
+>>>>>>> f4e6f5ba9052c9714820f988941221d706486134
