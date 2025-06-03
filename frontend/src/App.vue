@@ -18,7 +18,11 @@
         </div>
       </el-header>
       
-      <el-container>
+      <el-container class="main-content-container">
+        <el-aside width="250px" class="app-sidebar" v-if="$route.path === '/chat'">
+          <!-- 聊天历史侧边栏组件将在这里 -->
+          <router-view name="chatHistory"></router-view>
+        </el-aside>
         <el-main class="app-main">
           <router-view />
         </el-main>
@@ -37,8 +41,17 @@ export default {
         { path: '/settings', title: '设置' }
       ]
     }
+  },
+  watch: {
+    '$route'(to, from) {
+      // 当从 /chat 路由离开时，可能需要清理侧边栏状态或数据
+      // 例如，如果侧边栏组件有自己的状态管理，可以在这里触发清理
+      if (from.path === '/chat' && to.path !== '/chat') {
+        // console.log('Leaving chat route, consider cleaning up chat history sidebar state');
+      }
+    }
   }
-}
+};
 </script>
 
 <style>
@@ -97,14 +110,22 @@ export default {
   color: var(--primary-color);
 }
 
+.main-content-container {
+  height: calc(100% - var(--header-height)); /* 减去头部高度 */
+}
+
+.app-sidebar {
+  background: #ffffff;
+  border-right: 1px solid var(--border-color);
+  padding: 16px;
+  box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+  overflow-y: auto;
+}
+
 .app-main {
   padding: 24px;
   max-width: 1200px;
   margin: 0 auto;
+  width: 100%; /* 确保主内容区域宽度自适应 */
 }
-<<<<<<< HEAD
 </style>
-//你写注释了吗？
-=======
-</style>
->>>>>>> f4e6f5ba9052c9714820f988941221d706486134
