@@ -1,38 +1,48 @@
 <template>
+  <!-- 聊天容器 -->
   <div class="chat-container">
+    <!-- 消息列表区域 -->
     <div class="message-list">
+      <!-- 遍历消息数组，显示每条消息 -->
       <div 
         v-for="(message, index) in messages" 
         :key="index"
-        :class="['message-bubble', message.role]"
+        :class="['message-bubble', message.role]" <!-- 根据消息角色添加不同样式 -->
       >
+        <!-- 消息头像 -->
         <div class="message-avatar">
-          <el-avatar :icon="message.role === 'user' ? 'User' : 'ChatRound'" />
+          <el-avatar :icon="message.role === 'user' ? 'User' : 'ChatRound'" /> <!-- 根据角色显示不同头像图标 -->
         </div>
+        <!-- 消息内容包装器 -->
         <div class="message-content-wrapper">
+          <!-- 消息角色显示 -->
           <div class="message-role">{{ message.role === 'user' ? '你' : 'AI助手' }}</div>
+          <!-- 消息实际内容 -->
           <div class="message-content">{{ message.content }}</div>
         </div>
       </div>
     </div>
     
+    <!-- 输入区域 -->
     <div class="input-area">
+      <!-- 文本输入框 -->
       <el-input
-        v-model="inputMessage"
-        type="textarea"
-        :rows="3"
-        placeholder="输入消息..."
-        :autosize="{ minRows: 1, maxRows: 4 }"
-        resize="none"
-        @keyup.enter.native="sendMessage"
+        v-model="inputMessage" <!-- 绑定输入消息数据 -->
+        type="textarea" <!-- 文本域类型 -->
+        :rows="3" <!-- 初始行数 -->
+        placeholder="输入消息..." <!-- 占位符文本 -->
+        :autosize="{ minRows: 1, maxRows: 4 }" <!-- 自动调整行高范围 -->
+        resize="none" <!-- 禁止调整大小 -->
+        @keyup.enter.native="sendMessage" <!-- 监听回车键发送消息 -->
       />
+      <!-- 发送按钮 -->
       <el-button 
         type="primary" 
-        @click="sendMessage"
-        :loading="isLoading"
+        @click="sendMessage" <!-- 点击发送消息 -->
+        :loading="isLoading" <!-- 按钮加载状态 -->
         class="send-button"
       >
-        <el-icon><Promotion /></el-icon>
+        <el-icon><Promotion /></el-icon> <!-- 发送图标 -->
         <span>发送</span>
       </el-button>
     </div>
@@ -40,41 +50,43 @@
 </template>
 
 <script>
-import axios from 'axios';
+import axios from 'axios'; // 导入 axios 用于 HTTP 请求
 
 export default {
-  name: 'ChatView',
-  data() {
+  name: 'ChatView', // 组件名称
+  data() { // 组件数据
     return {
-      messages: [],
-      inputMessage: '',
-      isLoading: false
+      messages: [], // 存储聊天消息的数组
+      inputMessage: '', // 输入框中的消息内容
+      isLoading: false // 发送按钮的加载状态
     };
   },
-  methods: {
-    async sendMessage() {
-      if (!this.inputMessage.trim()) return;
+  methods: { // 组件方法
+    async sendMessage() { // 发送消息方法
+      if (!this.inputMessage.trim()) return; // 如果输入为空，则不发送
       
-      this.isLoading = true;
-      const userMessage = { role: 'user', content: this.inputMessage };
-      this.messages.push(userMessage);
+      this.isLoading = true; // 设置加载状态为 true
+      const userMessage = { role: 'user', content: this.inputMessage }; // 创建用户消息对象
+      this.messages.push(userMessage); // 将用户消息添加到消息列表
       
       try {
+        // 发送 POST 请求到后端 API
         const response = await axios.post('/v1/chat/completions', {
-          messages: this.messages,
-          model: 'default'
+          messages: this.messages, // 发送当前所有消息
+          model: 'default' // 使用默认模型
         });
         
+        // 将 AI 助手的回复添加到消息列表
         this.messages.push({
           role: 'assistant',
           content: response.data.choices[0].message.content
         });
       } catch (error) {
-        console.error('请求失败:', error);
-        this.$message.error('发送消息失败');
+        console.error('请求失败:', error); // 打印错误信息
+        this.$message.error('发送消息失败'); // 显示错误提示
       } finally {
-        this.isLoading = false;
-        this.inputMessage = '';
+        this.isLoading = false; // 无论成功或失败，都将加载状态设置为 false
+        this.inputMessage = ''; // 清空输入框
       }
     }
   }
@@ -82,55 +94,64 @@ export default {
 </script>
 
 <style scoped>
+/* 聊天容器样式 */
 .chat-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 16px;
-  background: #f8f9fa;
+  display: flex; /* 弹性布局 */
+  flex-direction: column; /* 垂直方向排列 */
+  height: 100%; /* 高度占满父容器 */
+  padding: 16px; /* 内边距 */
+  background: #f8f9fa; /* 背景色 */
 }
 
+/* 消息列表样式 */
 .message-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  scroll-behavior: smooth;
+  flex: 1; /* 占据剩余空间 */
+  overflow-y: auto; /* 垂直滚动 */
+  padding: 16px; /* 内边距 */
+  scroll-behavior: smooth; /* 平滑滚动 */
 }
 
+/* 消息气泡通用样式 */
 .message-bubble {
-  display: flex;
-  margin-bottom: 24px;
-  max-width: 80%;
-  transition: all 0.3s ease;
+  display: flex; /* 弹性布局 */
+  margin-bottom: 24px; /* 下外边距 */
+  max-width: 80%; /* 最大宽度 */
+  transition: all 0.3s ease; /* 过渡效果 */
 }
 
+/* 用户消息气泡样式 */
 .message-bubble.user {
-  margin-left: auto;
-  flex-direction: row-reverse;
+  margin-left: auto; /* 靠右对齐 */
+  flex-direction: row-reverse; /* 反向排列，使头像在右侧 */
 }
 
+/* AI 助手消息气泡样式 */
 .message-bubble.assistant {
-  margin-right: auto;
+  margin-right: auto; /* 靠左对齐 */
 }
 
+/* 消息内容样式 */
 .message-content {
-  display: inline-block;
-  padding: 10px 15px;
-  border-radius: 8px;
-  background: #f5f7fa;
+  display: inline-block; /* 行内块级元素 */
+  padding: 10px 15px; /* 内边距 */
+  border-radius: 8px; /* 圆角 */
+  background: #f5f7fa; /* 背景色 */
 }
 
+/* 用户消息内容样式 */
 .message.user .message-content {
-  background: #409EFF;
-  color: white;
+  background: #409EFF; /* 背景蓝色 */
+  color: white; /* 文本白色 */
 }
 
+/* 输入区域样式 */
 .input-area {
-  padding: 20px;
-  border-top: 1px solid #e6e6e6;
+  padding: 20px; /* 内边距 */
+  border-top: 1px solid #e6e6e6; /* 上边框 */
 }
 
+/* 按钮样式 */
 .el-button {
-  margin-top: 10px;
+  margin-top: 10px; /* 上外边距 */
 }
 </style>
