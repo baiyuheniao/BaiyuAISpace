@@ -1,16 +1,12 @@
-import { createRouter, createWebHistory } from 'vue-router';
-import ChatView from '../views/ChatView.vue';
-import SettingsView from '../views/SettingsView.vue';
-import ChatHistory from '../components/ChatHistory.vue'; // 导入 ChatHistory 组件
+import { createRouter, createWebHistory } from 'vue-router'
+import ChatView from '../views/ChatView.vue'
+import SettingsView from '../views/SettingsView.vue'
 
 const routes = [
   {
-    path: '/chat/:chatId?',
+    path: '/chat',
     name: 'chat',
-    components: {
-      default: ChatView,
-      ChatHistory: ChatHistory
-    },
+    component: ChatView
   },
   {
     path: '/settings',
@@ -21,11 +17,11 @@ const routes = [
     path: '/',
     redirect: '/chat'
   }
-];
+]
 
 const router = createRouter({
   history: createWebHistory(),
   routes
-});
+})
 
-export default router;
+export default router
