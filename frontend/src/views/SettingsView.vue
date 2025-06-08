@@ -25,9 +25,8 @@
               <el-input 
                 v-model="apiKey" 
                 placeholder="请输入您的 API 密钥" 
-                type="password" <!-- 密码类型输入框 -->
-                show-password <!-- 显示密码切换按钮 -->
-                class="api-input"
+                type="password"
+                show-password
               />
             </el-form-item>
 

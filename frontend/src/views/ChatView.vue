@@ -7,11 +7,11 @@
       <div 
         v-for="(message, index) in messages" 
         :key="index"
-        :class="['message-bubble', message.role]" <!-- 根据消息角色添加不同样式 -->
+        :class="['message-bubble', message.role]"
       >
         <!-- 消息头像 -->
         <div class="message-avatar">
-          <el-avatar :icon="message.role === 'user' ? 'User' : 'ChatRound'" /> <!-- 根据角色显示不同头像图标 -->
+          <el-avatar :icon="message.role === 'user' ? 'User' : 'ChatRound'" />
         </div>
         <!-- 消息内容包装器 -->
         <div class="message-content-wrapper">
@@ -27,22 +27,22 @@
     <div class="input-area">
       <!-- 文本输入框 -->
       <el-input
-        v-model="inputMessage" <!-- 绑定输入消息数据 -->
-        type="textarea" <!-- 文本域类型 -->
-        :rows="3" <!-- 初始行数 -->
-        placeholder="输入消息..." <!-- 占位符文本 -->
-        :autosize="{ minRows: 1, maxRows: 4 }" <!-- 自动调整行高范围 -->
-        resize="none" <!-- 禁止调整大小 -->
-        @keyup.enter.native="sendMessage" <!-- 监听回车键发送消息 -->
+        v-model="inputMessage"
+        type="textarea"
+        :rows="3"
+        placeholder="输入消息..."
+        :autosize="{ minRows: 1, maxRows: 4 }"
+        resize="none"
+        @keyup.enter.native="sendMessage"
       />
       <!-- 发送按钮 -->
       <el-button 
         type="primary" 
-        @click="sendMessage" <!-- 点击发送消息 -->
-        :loading="isLoading" <!-- 按钮加载状态 -->
+        @click="sendMessage"
+        :loading="isLoading"
         class="send-button"
       >
-        <el-icon><Promotion /></el-icon> <!-- 发送图标 -->
+        <el-icon><Promotion /></el-icon>
         <span>发送</span>
       </el-button>
     </div>

@@ -96,14 +96,17 @@ class AnthropicAdapter(BaseAdapter):
         }
 
     # 实现 chat_completion 抽象方法，用于与 Anthropic 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, **kwargs) -> str:
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 构建请求体 payload
             payload = {
                 "model": model,  # 模型名称
                 "messages": messages,  # 消息列表
-                "max_tokens": 1000  # 最大 token 数量
+                "max_tokens": kwargs.get("max_tokens", 1000),  # 最大 token 数量，支持可选参数
+                "temperature": kwargs.get("temperature", 0.7), # 温度参数，支持可选参数
+                "top_p": kwargs.get("top_p", 1.0), # top_p 参数，支持可选参数
+                "top_k": kwargs.get("top_k", -1) # top_k 参数，支持可选参数
             }
             try:
                 # 发送 POST 请求到 Anthropic 的 /v1/messages 接口
@@ -112,14 +115,24 @@ class AnthropicAdapter(BaseAdapter):
                     json=payload,
                     headers=self.headers
                 ) as response:
-                    # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['content'][0]['text']
+                    # 检查响应状态码
+                    if response.status == 200:
+                        # 解析 JSON 响应
+                        result = await response.json()
+                        # 返回聊天补全结果
+                        return result['content'][0]['text']
+                    else:
+                        # 记录非成功状态码的错误信息
+                        error_detail = await response.text()
+                        logger.error(f"Anthropic请求失败，状态码: {response.status}，详情: {error_detail}")
+                        response.raise_for_status() # 抛出 HTTP 错误
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"Anthropic请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
-                logger.error(f"Anthropic请求失败: {str(e)}")
-                # 重新抛出异常
+                # 捕获其他未知异常并记录错误日志
+                logger.error(f"Anthropic请求发生未知错误: {str(e)}")
                 raise
 
 # 定义 MetaAdapter 类，继承自 BaseAdapter
@@ -134,13 +147,17 @@ class MetaAdapter(BaseAdapter):
         }
 
     # 实现 chat_completion 抽象方法，用于与 Meta 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, **kwargs) -> str:
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 构建请求体 payload
             payload = {
                 "model": model,  # 模型名称
-                "messages": messages  # 消息列表
+                "messages": messages,  # 消息列表
+                "temperature": kwargs.get("temperature", 0.7), # 温度参数，支持可选参数
+                "max_tokens": kwargs.get("max_tokens", 1000), # 最大 token 数量，支持可选参数
+                "top_p": kwargs.get("top_p", 1.0), # top_p 参数，支持可选参数
+                "stop_sequences": kwargs.get("stop_sequences", []) # 停止序列，支持可选参数
             }
             try:
                 # 发送 POST 请求到 Meta 的 /v1/chat/completions 接口
@@ -149,14 +166,24 @@ class MetaAdapter(BaseAdapter):
                     json=payload,
                     headers=self.headers
                 ) as response:
-                    # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['choices'][0]['message']['content']
+                    # 检查响应状态码
+                    if response.status == 200:
+                        # 解析 JSON 响应
+                        result = await response.json()
+                        # 返回聊天补全结果
+                        return result['choices'][0]['message']['content']
+                    else:
+                        # 记录非成功状态码的错误信息
+                        error_detail = await response.text()
+                        logger.error(f"Meta请求失败，状态码: {response.status}，详情: {error_detail}")
+                        response.raise_for_status() # 抛出 HTTP 错误
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"Meta请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
-                logger.error(f"Meta请求失败: {str(e)}")
-                # 重新抛出异常
+                # 捕获其他未知异常并记录错误日志
+                logger.error(f"Meta请求发生未知错误: {str(e)}")
                 raise
 
 # 定义 GoogleAdapter 类，继承自 BaseAdapter
@@ -167,28 +194,59 @@ class GoogleAdapter(BaseAdapter):
         self.api_key = api_key
 
     # 实现 chat_completion 抽象方法，用于与 Google 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature: float = 0.7, top_p: float = 1.0, top_k: int = 0, max_output_tokens: int = 1024, stop_sequences: list = None) -> str:
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
+            # 将messages转换为Google Gemini API所需的contents格式
+            contents = []
+            for msg in messages:
+                parts = []
+                if 'content' in msg:
+                    parts.append({"text": msg['content']})
+                contents.append({"role": msg['role'], "parts": parts})
+
             # 构建请求体 payload
             payload = {
-                "model": model,  # 模型名称
-                "messages": messages  # 消息列表
+                "contents": contents,  # 消息列表
+                "generationConfig": {
+                    "temperature": temperature,
+                    "topP": top_p,
+                    "topK": top_k,
+                    "maxOutputTokens": max_output_tokens,
+                }
             }
+            if stop_sequences:
+                payload["generationConfig"]["stopSequences"] = stop_sequences
+
             try:
-                # 发送 POST 请求到 Google 的 /v1beta/models/{model}:generateMessage 接口
+                # 发送 POST 请求到 Google 的 /v1beta/models/{model}:generateContent 接口
                 async with session.post(
-                    f"{self.base_url}/v1beta/models/{model}:generateMessage?key={self.api_key}",
+                    f"{self.base_url}/v1beta/models/{model}:generateContent?key={self.api_key}",
                     json=payload
                 ) as response:
+                    if response.status != 200:
+                        error_detail = await response.text()
+                        logger.error(f"Google请求失败，状态码: {response.status}, 详情: {error_detail}")
+                        raise Exception(f"Google API请求失败: {response.status} - {error_detail}")
+
                     # 解析 JSON 响应
                     result = await response.json()
                     # 返回聊天补全结果
-                    return result['candidates'][0]['content']
+                    if 'candidates' in result and result['candidates']:
+                        # 检查是否存在 'content' 键，如果不存在则返回空字符串或抛出错误
+                        if 'content' in result['candidates'][0]:
+                            return result['candidates'][0]['content']
+                        elif 'parts' in result['candidates'][0] and result['candidates'][0]['parts']:
+                            # 处理parts数组，提取文本内容
+                            text_content = "".join([part['text'] for part in result['candidates'][0]['parts'] if 'text' in part])
+                            return text_content
+                    return ""
+            except aiohttp.ClientError as e:
+                logger.error(f"Google请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
-                logger.error(f"Google请求失败: {str(e)}")
-                # 重新抛出异常
+                # 捕获其他未知异常并记录错误日志
+                logger.error(f"Google请求发生未知错误: {str(e)}")
                 raise
 
 # 定义 CohereAdapter 类，继承自 BaseAdapter
