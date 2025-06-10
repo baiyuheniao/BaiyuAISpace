@@ -8,6 +8,10 @@ from pydantic import BaseModel
 from mcp_module import MCP
 # 导入 api_adapter 模块
 import api_adapter
+# 导入聊天历史记录管理模块
+from chat_history import ChatHistory
+# 导入Optional类型
+from typing import Optional, List
 
 # 创建 FastAPI 应用实例
 app = FastAPI()
@@ -24,20 +28,48 @@ app.add_middleware(
 # 创建 MCP 实例，用于管理 LLM 服务提供商
 mcp = MCP()
 
+# 创建聊天历史记录管理实例
+chat_history = ChatHistory()
+
 # 定义聊天请求的数据模型
 class ChatRequest(BaseModel):
     messages: list  # 消息列表
     model: str = "default"  # 模型名称，默认为 "default"
+    history_id: Optional[str] = None  # 聊天历史ID，可选
+
+# 定义聊天历史记录的数据模型
+class HistoryRequest(BaseModel):
+    title: Optional[str] = None  # 历史记录标题，可选
+
+# 定义聊天历史记录标题的数据模型
+class HistoryTitleRequest(BaseModel):
+    title: str  # 历史记录标题
 
 # 定义聊天补全的 POST 接口
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatRequest):
     try:
+        # 获取历史ID，如果没有则创建一个新的
+        history_id = request.history_id
+        if not history_id:
+            history_id = chat_history.create_history()
+        
+        # 获取用户的最后一条消息
+        user_message = request.messages[-1]
+        
+        # 将用户消息添加到历史记录
+        chat_history.add_message(history_id, user_message["role"], user_message["content"])
+        
         # 调用 MCP 实例处理聊天请求
         response = await mcp.handle_request(request.messages, request.model)
+        
+        # 将 AI 助手的回复添加到历史记录
+        chat_history.add_message(history_id, "assistant", response)
+        
         # 返回聊天补全结果
         return {
             "object": "chat.completion",
+            "history_id": history_id,
             "choices": [{
                 "message": {
                     "role": "assistant",
@@ -87,6 +119,65 @@ async def export_mcp_config():
 async def import_mcp_config(config: dict):
     # 导入配置
     mcp.import_configuration(config)
+    return {"status": "success"}
+
+# 创建新的聊天历史记录
+@app.post("/chat/histories")
+async def create_chat_history(request: HistoryRequest = None):
+    title = None
+    if request and request.title:
+        title = request.title
+    history_id = chat_history.create_history(title)
+    return {"status": "success", "history_id": history_id}
+
+# 获取所有聊天历史记录
+@app.get("/chat/histories")
+async def get_chat_histories():
+    histories = chat_history.get_histories()
+    return {"status": "success", "histories": histories}
+
+# 获取收藏的聊天历史记录
+@app.get("/chat/favorites")
+async def get_favorite_histories():
+    favorites = chat_history.get_favorites()
+    return {"status": "success", "favorites": favorites}
+
+# 获取特定聊天历史记录
+@app.get("/chat/histories/{history_id}")
+async def get_chat_history(history_id: str):
+    history = chat_history.get_history(history_id)
+    if not history:
+        raise HTTPException(status_code=404, detail="聊天历史记录不存在")
+    return {"status": "success", "history": history}
+
+# 更新聊天历史记录标题
+@app.put("/chat/histories/{history_id}/title")
+async def update_chat_history_title(history_id: str, request: HistoryTitleRequest):
+    success = chat_history.update_history_title(history_id, request.title)
+    if not success:
+        raise HTTPException(status_code=404, detail="聊天历史记录不存在")
+    return {"status": "success"}
+
+# 切换聊天历史记录收藏状态
+@app.put("/chat/histories/{history_id}/favorite")
+async def toggle_chat_history_favorite(history_id: str):
+    success = chat_history.toggle_favorite(history_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="聊天历史记录不存在")
+    return {"status": "success"}
+
+# 删除聊天历史记录
+@app.delete("/chat/histories/{history_id}")
+async def delete_chat_history(history_id: str):
+    success = chat_history.delete_history(history_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="聊天历史记录不存在")
+    return {"status": "success"}
+
+# 清空所有聊天历史记录
+@app.delete("/chat/histories")
+async def clear_chat_histories():
+    chat_history.clear_all_histories()
     return {"status": "success"}
 
 # 当作为主程序运行时

@@ -12,14 +12,15 @@
           <!-- 导航区域 -->
           <div class="app-nav">
             <!-- 导航按钮，遍历 navLinks 数组生成 -->
+            <!-- 导航按钮，根据当前路由路径判断是否激活，点击时跳转到对应路由 -->
             <el-button 
-              type="text" 
+              type="link" 
               v-for="link in navLinks" 
               :key="link.path"
-              :class="{ active: $route.path === link.path }" <!-- 根据当前路由路径判断是否激活 -->
-              @click="$router.push(link.path)" <!-- 点击按钮跳转到对应路由 -->
+              :class="{ active: $route.path === link.path }"
+              @click="$router.push(link.path)"
             >
-              {{ link.title }} <!-- 按钮文本 -->
+              {{ link.title }}
             </el-button>
           </div>
         </div>

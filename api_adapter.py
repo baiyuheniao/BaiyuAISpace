@@ -1061,7 +1061,7 @@ class ZhipuAdapter(BaseAdapter):
             
             return token
         except ImportError:
-            logger.error("生成智谱API令牌需要安装PyJWT库，请使用 'pip install pyjwt' 安装")
+            logger.error("生成智谱API令牌需要安装PyJWT库 请使用 'pip install pyjwt' 安装")
             raise
         except Exception as e:
             logger.error(f"生成智谱API令牌失败: {str(e)}")
