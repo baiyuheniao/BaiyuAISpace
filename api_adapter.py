@@ -8,6 +8,8 @@ import logging
 import time
 # 导入 json 库，用于解析响应
 import json
+# 导入 typing 库，用于类型注解
+from typing import Optional, List, Union
 
 # 获取一个 logger 实例，用于记录日志
 logger = logging.getLogger(__name__)
@@ -111,7 +113,7 @@ class OpenAIAdapter(BaseAdapter):
                     f"{self.base_url}/chat/completions",
                     json=payload,
                     headers=self.headers,
-                    timeout=60  # 添加超时设置
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
                     response_text = await response.text()
                     
@@ -245,7 +247,7 @@ class AnthropicAdapter(BaseAdapter):
                     f"{self.base_url}/v1/messages",
                     json=payload,
                     headers=self.headers,
-                    timeout=60  # 添加超时设置
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
                     response_text = await response.text()
                     
@@ -359,7 +361,7 @@ class MetaAdapter(BaseAdapter):
                     f"{self.base_url}/chat/completions",
                     json=payload,
                     headers=self.headers,
-                    timeout=60  # 添加超时设置
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
                     response_text = await response.text()
                     
@@ -416,7 +418,7 @@ class GoogleAdapter(BaseAdapter):
         }
 
     # 实现 chat_completion 抽象方法，用于与 Google 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature: float = 0.7, top_p: float = 1.0, top_k: int = 0, max_output_tokens: int = 1024, stop_sequences: list = None) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature: float = 0.7, top_p: float = 1.0, top_k: int = 0, max_output_tokens: int = 1024, stop_sequences: Optional[List[str]] = None) -> str:
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 验证消息列表非空
@@ -750,7 +752,7 @@ class BaiduAdapter(BaseAdapter):
             raise ValueError("转换后的消息列表为空")
         
         # 构建请求体 payload
-        payload = {
+        payload: dict = {
             "messages": valid_messages  # 消息列表
         }
         
@@ -777,7 +779,7 @@ class BaiduAdapter(BaseAdapter):
                 async with session.post(
                     api_url,
                     json=payload,
-                    timeout=60  # 添加超时设置
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
                     response_text = await response.text()
                     
@@ -960,7 +962,7 @@ class MoonshotAdapter(BaseAdapter):
                     f"{self.base_url}/v1/chat/completions",
                     json=payload,
                     headers=self.headers,
-                    timeout=60  # 添加超时设置
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
                     response_text = await response.text()
                     
@@ -1036,7 +1038,13 @@ class ZhipuAdapter(BaseAdapter):
             str: JWT令牌
         """
         try:
-            import jwt
+            # 尝试导入jwt，如果失败则使用备用方案
+            try:
+                import jwt
+            except ImportError:
+                logger.warning("PyJWT库未安装，将使用备用认证方式")
+                return self.api_key
+                
             import time
             import uuid
             
@@ -1060,12 +1068,10 @@ class ZhipuAdapter(BaseAdapter):
             )
             
             return token
-        except ImportError:
-            logger.error("生成智谱API令牌需要安装PyJWT库 请使用 'pip install pyjwt' 安装")
-            raise
         except Exception as e:
             logger.error(f"生成智谱API令牌失败: {str(e)}")
-            raise
+            # 如果生成令牌失败，返回原始API密钥
+            return self.api_key
 
     # 实现 chat_completion 抽象方法，用于与智谱服务进行聊天补全
     async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.7, max_tokens=1024) -> str:
@@ -1149,7 +1155,7 @@ class ZhipuAdapter(BaseAdapter):
                     api_url,
                     json=payload,
                     headers=headers,
-                    timeout=60  # 添加超时设置
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
                     response_text = await response.text()
                     
@@ -1204,7 +1210,7 @@ class ZhipuAdapter(BaseAdapter):
 # 定义 SparkAdapter 类，继承自 BaseAdapter
 class SparkAdapter(BaseAdapter):
     # 构造函数，初始化 Spark API 凭据和基准 URL
-    def __init__(self, api_key: str, app_id: str = None, api_secret: str = None, base_url="https://spark-api.xf-yun.com"):
+    def __init__(self, api_key: str, app_id: Optional[str] = None, api_secret: Optional[str] = None, base_url="https://spark-api.xf-yun.com"):
         if not api_key or not isinstance(api_key, str):
             raise ValueError("讯飞星火 API Key不能为空且必须是字符串")
             
@@ -1363,7 +1369,7 @@ class SparkAdapter(BaseAdapter):
                     api_url,
                     json=payload,
                     headers=headers,
-                    timeout=60  # 添加超时设置
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
                     response_text = await response.text()
                     
