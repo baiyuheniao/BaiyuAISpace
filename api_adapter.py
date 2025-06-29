@@ -1037,41 +1037,36 @@ class ZhipuAdapter(BaseAdapter):
         Returns:
             str: JWT令牌
         """
+        # 尝试导入jwt，如果失败则使用备用方案
         try:
-            # 尝试导入jwt，如果失败则使用备用方案
-            try:
-                import jwt
-            except ImportError:
-                logger.warning("PyJWT库未安装，将使用备用认证方式")
-                return self.api_key
-                
-            import time
-            import uuid
-            
-            # 当前时间戳（秒）
-            iat = int(time.time())
-            # 过期时间戳
-            exp = iat + expiration_seconds
-            # 负载数据
-            payload = {
-                "api_key": self.api_id,
-                "exp": exp,
-                "timestamp": iat,
-                "uuid": str(uuid.uuid4())  # 随机UUID，防止重放攻击
-            }
-            
-            # 使用HS256算法和API密钥的secret部分签名
-            token = jwt.encode(
-                payload,
-                self.api_secret,
-                algorithm="HS256"
-            )
-            
-            return token
-        except Exception as e:
-            logger.error(f"生成智谱API令牌失败: {str(e)}")
-            # 如果生成令牌失败，返回原始API密钥
+            import jwt
+        except ImportError:
+            logger.warning("PyJWT库未安装，将使用备用认证方式")
             return self.api_key
+                
+        import time
+        import uuid
+        
+        # 当前时间戳（秒）
+        iat = int(time.time())
+        # 过期时间戳
+        exp = iat + expiration_seconds
+        # 负载数据
+        payload = {
+            "api_key": self.api_id,
+            "exp": exp,
+            "timestamp": iat,
+            "uuid": str(uuid.uuid4())  # 随机UUID，防止重放攻击
+        }
+        
+        # 使用HS256算法和API密钥的secret部分签名
+        token = jwt.encode(
+            payload,
+            self.api_secret,
+            algorithm="HS256"
+        )
+        
+        return token
 
     # 实现 chat_completion 抽象方法，用于与智谱服务进行聊天补全
     async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.7, max_tokens=1024) -> str:
@@ -1555,15 +1550,16 @@ class XunfeiAdapter(BaseAdapter):
 class CustomAdapter(BaseAdapter):
     # 构造函数，初始化自定义 API 密钥和基准 URL
     def __init__(self, api_key: str, base_url: str):
-        self.base_url = base_url
+        self.base_url = base_url.rstrip('/')  # 移除末尾的斜杠
         # 设置请求头，包含授权信息和内容类型
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        print(f"CustomAdapter初始化: base_url={self.base_url}")
 
     # 实现 chat_completion 抽象方法，用于与自定义服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, **kwargs) -> str:
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 构建请求体 payload
@@ -1572,19 +1568,74 @@ class CustomAdapter(BaseAdapter):
                 "messages": messages,  # 消息列表
                 "stream": False  # 不使用流式传输
             }
+            
+            # 添加可选参数
+            if 'temperature' in kwargs:
+                payload['temperature'] = kwargs['temperature']
+            if 'max_tokens' in kwargs:
+                payload['max_tokens'] = kwargs['max_tokens']
+            if 'top_p' in kwargs:
+                payload['top_p'] = kwargs['top_p']
+            if 'top_k' in kwargs:
+                payload['top_k'] = kwargs['top_k']
+            
+            # 智能构建API URL
+            if '/v1' in self.base_url:
+                # 如果base_url已经包含/v1，直接添加/chat/completions
+                api_url = f"{self.base_url}/chat/completions"
+            else:
+                # 如果base_url不包含/v1，添加/v1/chat/completions
+                api_url = f"{self.base_url}/v1/chat/completions"
+            
+            print(f"CustomAdapter请求URL: {api_url}")
+            print(f"CustomAdapter请求payload: {payload}")
+            
             try:
-                # 发送 POST 请求到自定义服务的 /v1/chat/completions 接口
+                # 发送 POST 请求到自定义服务的聊天补全接口
                 async with session.post(
-                    f"{self.base_url}/v1/chat/completions",
+                    api_url,
                     json=payload,
-                    headers=self.headers
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"Custom请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"Custom API请求失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"Custom响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析Custom API响应: {str(e)}")
+                    
+                    # 检查响应格式
+                    if not result or 'choices' not in result or not result['choices']:
+                        logger.error(f"Custom响应格式无效: {result}")
+                        raise ValueError("Custom响应格式无效，缺少choices字段")
+                    
                     # 返回聊天补全结果
-                    return result['choices'][0]['message']['content']
+                    choice = result['choices'][0]
+                    if 'message' not in choice or 'content' not in choice['message']:
+                        logger.error(f"Custom响应格式异常: {choice}")
+                        raise ValueError("Custom响应格式无效，缺少message.content")
+                    
+                    # 记录使用信息（如果存在）
+                    if 'usage' in result:
+                        logger.debug(f"Custom API使用情况: 输入tokens: {result['usage'].get('prompt_tokens', '未知')}, "
+                                   f"输出tokens: {result['usage'].get('completion_tokens', '未知')}")
+                    
+                    return choice['message']['content']
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"Custom请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
+                # 捕获其他未知异常并记录错误日志
                 logger.error(f"Custom请求失败: {str(e)}")
                 # 重新抛出异常
                 raise

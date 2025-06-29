@@ -10,6 +10,13 @@ import 'element-plus/dist/index.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 // 导入 Vue Router 实例
 import router from './router'
+// 导入 axios 并配置
+import axios from 'axios'
+
+// 配置 axios 默认设置
+axios.defaults.baseURL = 'http://localhost:8000'
+axios.defaults.timeout = 10000
+axios.defaults.headers.common['Content-Type'] = 'application/json'
 
 // 创建 Vue 应用实例，并将根组件 App 传入
 const app = createApp(App)

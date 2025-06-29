@@ -39,6 +39,15 @@
               />
             </el-form-item>
 
+            <!-- Base URL 输入项，仅对自定义提供商显示 -->
+            <el-form-item label="API Base URL" v-if="isCustomProvider">
+              <el-input 
+                v-model="baseUrl" 
+                placeholder="请输入API基础URL，例如: https://api.example.com"
+                class="api-input"
+              />
+            </el-form-item>
+
             <!-- 参数设置行 -->
             <el-row :gutter="20">
               <!-- Temperature 参数设置 -->
@@ -165,14 +174,22 @@ export default {
       topP: null, // Top P 参数
       isSaving: false, // 保存按钮加载状态
       isExporting: false, // 导出按钮加载状态
-      isImporting: false // 导入按钮加载状态
+      isImporting: false, // 导入按钮加载状态
+      baseUrl: '' // Base URL 输入项
     };
+  },
+  computed: {
+    // 判断是否为自定义提供商
+    isCustomProvider() {
+      return ['硅基流动', '其他'].includes(this.currentProvider);
+    }
   },
   methods: { // 组件方法
     handleProviderChange() { // 处理提供商选择变化
       // 切换提供商时可以重置或加载特定配置，暂时留空
       this.apiKey = '';
       this.modelName = '';
+      this.baseUrl = '';
       // 可以根据选择的提供商设置默认模型等
     },
     async saveSettings() { // 保存设置方法
@@ -189,39 +206,58 @@ export default {
         this.$message.error('请输入模型名称');
         return;
       }
+      // 对自定义提供商验证base_url
+      if (this.isCustomProvider && !this.baseUrl.trim()) {
+        this.$message.error('请输入 API Base URL');
+        return;
+      }
 
       // 准备要发送的配置数据
       const config = {
         api_key: this.apiKey,
         model: this.modelName,
         // 只包含用户实际修改过的参数，或有值的参数
-        ...(this.temperature !== null && { temperature: this.temperature }),
-        ...(this.topK !== null && { top_k: this.topK }),
-        ...(this.maxTokens !== null && { max_tokens: this.maxTokens }),
-        ...(this.topP !== null && { top_p: this.topP }),
+        ...(this.temperature !== null && this.temperature !== undefined && { temperature: this.temperature }),
+        ...(this.topK !== null && this.topK !== undefined && { top_k: this.topK }),
+        ...(this.maxTokens !== null && this.maxTokens !== undefined && { max_tokens: this.maxTokens }),
+        ...(this.topP !== null && this.topP !== undefined && { top_p: this.topP }),
       };
+
+      // 对自定义提供商添加base_url
+      if (this.isCustomProvider && this.baseUrl.trim()) {
+        config.base_url = this.baseUrl.trim();
+      }
 
       this.isSaving = true; // 设置保存按钮加载状态为 true
       try {
         // 2. 发送请求到后端
         if (this.enableMCP) { // 如果启用了 MCP 模式
+          // 检查MCP配置是否为空
+          if (!this.mcpConfig.trim()) {
+            this.$message.error('请输入MCP配置');
+            return;
+          }
           try {
             JSON.parse(this.mcpConfig); // 验证 MCP 配置的 JSON 格式
-            await axios.post('/mcp/save_config', { // 发送保存 MCP 配置的请求
-              provider_name: this.currentProvider,
-              config: config,
-              mcp_config: JSON.parse(this.mcpConfig)
-            });
           } catch (e) {
-            this.$message.error('MCP配置JSON格式错误: ' + e.message); // 提示 JSON 格式错误
-            throw e; // 抛出异常
+            this.$message.error('MCP配置JSON格式错误: ' + e.message);
+            return;
           }
+          
+          // 发送MCP配置保存请求
+          await axios.post('/mcp/save_config', {
+            provider_name: this.currentProvider,
+            config: config,
+            mcp_config: JSON.parse(this.mcpConfig)
+          });
+        } else {
+          // 非MCP模式，直接发送切换提供商请求
+          await axios.post('/switch_provider', {
+            provider_name: this.currentProvider,
+            config: config
+          });
         }
-        // 发送切换提供商的请求
-        await axios.post('/switch_provider', {
-          provider_name: this.currentProvider,
-          config: config // 发送结构化的配置
-        });
+        
         // 3. 成功提示并跳转
         this.$message.success('设置保存成功，即将跳转到对话页面...'); // 显示成功提示
         // 延迟跳转，给用户看提示的时间
@@ -231,7 +267,17 @@ export default {
       } catch (error) {
         // 4. 错误处理
         console.error('保存失败:', error); // 打印错误信息
-        const errorMsg = error.response?.data?.error || '保存设置失败，请检查配置或稍后再试'; // 获取错误信息
+        let errorMsg = '保存设置失败，请检查配置或稍后再试';
+        
+        // 尝试从不同位置获取错误信息
+        if (error.response?.data?.detail) {
+          errorMsg = error.response.data.detail;
+        } else if (error.response?.data?.error) {
+          errorMsg = error.response.data.error;
+        } else if (error.message) {
+          errorMsg = error.message;
+        }
+        
         this.$message.error(errorMsg); // 显示错误提示
       } finally {
         this.isSaving = false; // 无论成功或失败，都将保存按钮加载状态设置为 false

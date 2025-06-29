@@ -49,27 +49,24 @@ class HistoryTitleRequest(BaseModel):
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatRequest):
     try:
-        # 获取历史ID，如果没有则创建一个新的
-        # history_id = request.history_id
-        # if not history_id:
-        #     history_id = chat_history.create_history()
+        print(f"收到聊天请求: 消息数={len(request.messages)}, 模型={request.model}")
         
-        # 获取用户的最后一条消息
-        user_message = request.messages[-1]
+        # 检查MCP实例是否有当前提供商
+        if not mcp.current_provider:
+            raise HTTPException(status_code=500, detail="未配置AI服务提供商，请先在设置页面配置")
         
-        # 将用户消息添加到历史记录
-        # chat_history.add_message(history_id, user_message["role"], user_message["content"])
+        # 检查提供商是否存在
+        if mcp.current_provider not in mcp.providers:
+            raise HTTPException(status_code=500, detail=f"当前提供商 {mcp.current_provider} 不存在")
         
         # 调用 MCP 实例处理聊天请求
         response = await mcp.handle_request(request.messages, request.model)
         
-        # 将 AI 助手的回复添加到历史记录
-        # chat_history.add_message(history_id, "assistant", response)
+        print(f"聊天请求处理成功，响应长度: {len(response)}")
         
         # 返回聊天补全结果
         return {
             "object": "chat.completion",
-            # "history_id": history_id,
             "choices": [{
                 "message": {
                     "role": "assistant",
@@ -77,9 +74,13 @@ async def chat_completions(request: ChatRequest):
                 }
             }]
         }
+    except HTTPException:
+        # 重新抛出HTTP异常
+        raise
     except Exception as e:
+        print(f"聊天请求处理失败: {str(e)}")
         # 捕获异常并返回 HTTP 500 错误
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"聊天请求处理失败: {str(e)}")
 
 # 定义 MCP 配置的数据模型
 class MCPConfig(BaseModel):
@@ -100,21 +101,53 @@ class SwitchProviderRequest(BaseModel):
 # 定义切换提供商的 POST 接口
 @app.post("/switch_provider")
 async def switch_provider(request: SwitchProviderRequest):
-    # 添加提供商
-    mcp.add_provider(request.provider_name, request.config)
-    # 切换当前提供商
-    mcp.switch_current_provider(request.provider_name)
-    return {"status": "success"}
+    try:
+        print(f"切换提供商: 提供商={request.provider_name}, 配置={request.config}")
+        # 检查提供商是否已经存在，如果不存在则添加
+        if request.provider_name not in mcp.providers:
+            print(f"提供商 {request.provider_name} 不存在，正在添加...")
+            try:
+                mcp.add_provider(request.provider_name, request.config)
+                print(f"提供商 {request.provider_name} 添加成功")
+            except Exception as add_error:
+                print(f"添加提供商失败: {str(add_error)}")
+                raise HTTPException(status_code=500, detail=f"添加提供商失败: {str(add_error)}")
+        # 切换当前提供商
+        try:
+            mcp.switch_current_provider(request.provider_name)
+            print(f"提供商切换成功: {request.provider_name}")
+        except Exception as switch_error:
+            print(f"切换提供商失败: {str(switch_error)}")
+            raise HTTPException(status_code=500, detail=f"切换提供商失败: {str(switch_error)}")
+        return {"status": "success"}
+    except HTTPException:
+        # 重新抛出HTTP异常
+        raise
+    except Exception as e:
+        print(f"切换提供商失败: {str(e)}")
+        # 捕获异常并返回详细的错误信息
+        raise HTTPException(status_code=500, detail=f"切换提供商失败: {str(e)}")
     
 # 定义保存 MCP 配置的 POST 接口
 @app.post("/mcp/save_config")
 async def save_mcp_config(request: MCPSaveConfigRequest):
-    # 保存配置
-    mcp.save_configuration(request.provider_name, request.config)
-    # 如果有MCP配置，也保存到MCP模块中
-    if request.mcp_config:
-        mcp.import_configuration(request.mcp_config)
-    return {"status": "success"}
+    try:
+        print(f"保存MCP配置: 提供商={request.provider_name}, 配置={request.config}")
+        # 保存配置
+        mcp.save_configuration(request.provider_name, request.config)
+        # 添加提供商到MCP实例中
+        mcp.add_provider(request.provider_name, request.config)
+        # 切换当前提供商
+        mcp.switch_current_provider(request.provider_name)
+        # 如果有MCP配置，也保存到MCP模块中
+        if request.mcp_config:
+            mcp.import_configuration(request.mcp_config)
+        print(f"MCP配置保存成功: {request.provider_name}")
+        return {"status": "success"}
+    except Exception as e:
+        print(f"MCP配置保存失败: {str(e)}")
+        # 捕获异常并返回详细的错误信息
+        raise HTTPException(status_code=500, detail=f"保存配置失败: {str(e)}")
     
 # 定义获取 MCP 配置的 GET 接口
 @app.get("/mcp/get_configs")

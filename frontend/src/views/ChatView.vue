@@ -177,7 +177,8 @@ export default {
   },
   mounted() {
     // 在组件挂载后加载聊天历史记录
-    this.loadChatHistories();
+    // this.loadChatHistories(); // 暂时注释掉，因为后端功能未实现
+    console.log('聊天页面已加载，聊天历史功能暂未实现');
   },
   methods: {
     // 格式化日期方法
@@ -221,8 +222,8 @@ export default {
           this.switchHistory(sortedHistories[0].id);
         }
       } catch (error) {
-        console.error('加载聊天历史记录失败:', error);
-        this.$message.error('加载聊天历史记录失败');
+        console.log('聊天历史功能暂未实现');
+        // 不显示错误提示，因为这是预期的情况
       }
     },
     
@@ -240,8 +241,8 @@ export default {
           this.switchHistory(response.data.history_id);
         }
       } catch (error) {
-        console.error('创建新聊天失败:', error);
-        this.$message.error('创建新聊天失败');
+        console.log('聊天历史功能暂未实现');
+        this.$message.info('聊天历史功能暂未实现，但可以正常发送消息');
       }
     },
     
@@ -261,8 +262,8 @@ export default {
           });
         }
       } catch (error) {
-        console.error('切换聊天历史记录失败:', error);
-        this.$message.error('切换聊天历史记录失败');
+        console.log('聊天历史功能暂未实现');
+        // 不显示错误提示，因为这是预期的情况
       }
     },
     
@@ -275,8 +276,8 @@ export default {
           await this.loadChatHistories();
         }
       } catch (error) {
-        console.error('切换收藏状态失败:', error);
-        this.$message.error('切换收藏状态失败');
+        console.log('聊天历史功能暂未实现');
+        this.$message.info('收藏功能暂未实现');
       }
     },
     
@@ -323,8 +324,9 @@ export default {
           this.$message.success('重命名成功');
         }
       } catch (error) {
-        console.error('重命名失败:', error);
-        this.$message.error('重命名失败');
+        console.log('聊天历史功能暂未实现');
+        this.$message.info('重命名功能暂未实现');
+        this.renameDialogVisible = false;
       }
     },
     
@@ -349,19 +351,14 @@ export default {
           this.$message.success('删除成功');
         }
       } catch (error) {
-        console.error('删除失败:', error);
-        this.$message.error('删除失败');
+        console.log('聊天历史功能暂未实现');
+        this.$message.info('删除功能暂未实现');
       }
     },
     
     // 发送消息方法
     async sendMessage() {
       if (!this.inputMessage.trim()) return; // 如果输入为空，则不发送
-      
-      // 如果没有当前历史记录ID，则创建一个新的
-      if (!this.currentHistoryId) {
-        await this.createNewChat();
-      }
       
       this.isLoading = true; // 设置加载状态为 true
       const userMessage = { role: 'user', content: this.inputMessage }; // 创建用户消息对象
@@ -378,8 +375,7 @@ export default {
         // 发送 POST 请求到后端 API
         const response = await axios.post('/v1/chat/completions', {
           messages: this.messages, // 发送当前所有消息
-          model: 'default', // 使用默认模型
-          history_id: this.currentHistoryId // 传递历史记录ID
+          model: 'default' // 使用默认模型
         });
         
         // 将 AI 助手的回复添加到消息列表
@@ -394,12 +390,20 @@ export default {
             this.$refs.messageList.scrollTop = this.$refs.messageList.scrollHeight;
           }
         });
-        
-        // 重新加载历史记录以更新最新状态
-        await this.loadChatHistories();
       } catch (error) {
         console.error('请求失败:', error); // 打印错误信息
-        this.$message.error('发送消息失败'); // 显示错误提示
+        let errorMsg = '发送消息失败';
+        
+        // 尝试从不同位置获取错误信息
+        if (error.response?.data?.detail) {
+          errorMsg = error.response.data.detail;
+        } else if (error.response?.data?.error) {
+          errorMsg = error.response.data.error;
+        } else if (error.message) {
+          errorMsg = error.message;
+        }
+        
+        this.$message.error(errorMsg); // 显示错误提示
       } finally {
         this.isLoading = false; // 无论成功或失败，都将加载状态设置为 false
         this.inputMessage = ''; // 清空输入框
