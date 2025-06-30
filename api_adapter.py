@@ -1358,7 +1358,12 @@ class SparkAdapter(BaseAdapter):
                 logger.debug(f"向讯飞星火发送请求: {spark_api_model}, API版本: {api_version}, 消息数: {len(valid_messages)}")
                 
                 # 发送 POST 请求到 Spark API
-                api_url = f"{self.base_url}/{api_version}/chat"
+                # 硅基流动的API端点
+                # 智能构建API URL，避免重复添加/v1
+                if self.base_url.endswith('/v1'):
+                    api_url = f"{self.base_url}/chat/completions"
+                else:
+                    api_url = f"{self.base_url}/v1/chat/completions"
                 
                 async with session.post(
                     api_url,
@@ -1580,11 +1585,11 @@ class CustomAdapter(BaseAdapter):
                 payload['top_k'] = kwargs['top_k']
             
             # 智能构建API URL
-            if '/v1' in self.base_url:
-                # 如果base_url已经包含/v1，直接添加/chat/completions
+            if self.base_url.endswith('/v1'):
+                # 如果base_url已经以/v1结尾，直接添加/chat/completions
                 api_url = f"{self.base_url}/chat/completions"
             else:
-                # 如果base_url不包含/v1，添加/v1/chat/completions
+                # 如果base_url不以/v1结尾，添加/v1/chat/completions
                 api_url = f"{self.base_url}/v1/chat/completions"
             
             print(f"CustomAdapter请求URL: {api_url}")
@@ -1603,7 +1608,21 @@ class CustomAdapter(BaseAdapter):
                     # 检查响应状态码
                     if response.status != 200:
                         logger.error(f"Custom请求失败，状态码: {response.status}，详情: {response_text}")
-                        raise Exception(f"Custom API请求失败: {response.status} - {response_text}")
+                        
+                        # 尝试解析错误响应
+                        try:
+                            error_data = await response.json()
+                            if 'message' in error_data:
+                                error_msg = error_data['message']
+                                if 'Model does not exist' in error_msg or 'model does not exist' in error_msg:
+                                    raise ValueError(f"模型 '{model}' 不存在，请检查模型名称是否正确。错误详情: {error_msg}")
+                                else:
+                                    raise Exception(f"Custom API请求失败: {response.status} - {error_msg}")
+                            else:
+                                raise Exception(f"Custom API请求失败: {response.status} - {response_text}")
+                        except Exception as parse_error:
+                            # 如果无法解析JSON，使用原始错误信息
+                            raise Exception(f"Custom API请求失败: {response.status} - {response_text}")
                     
                     # 解析 JSON 响应
                     try:
@@ -1637,5 +1656,112 @@ class CustomAdapter(BaseAdapter):
             except Exception as e:
                 # 捕获其他未知异常并记录错误日志
                 logger.error(f"Custom请求失败: {str(e)}")
+                # 重新抛出异常
+                raise
+
+# 定义 SiliconFlowAdapter 类，继承自 BaseAdapter
+class SiliconFlowAdapter(BaseAdapter):
+    # 构造函数，初始化硅基流动 API 密钥和基准 URL
+    def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn"):
+        self.base_url = base_url.rstrip('/')  # 移除末尾的斜杠
+        # 设置请求头，包含授权信息和内容类型
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        print(f"SiliconFlowAdapter初始化: base_url={self.base_url}")
+
+    # 实现 chat_completion 抽象方法，用于与硅基流动服务进行聊天补全
+    async def chat_completion(self, messages: list, model: str, **kwargs) -> str:
+        # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
+        async with aiohttp.ClientSession() as session:
+            # 构建请求体 payload - 硅基流动使用标准的OpenAI格式
+            payload = {
+                "model": model,  # 模型名称
+                "messages": messages,  # 消息列表
+                "stream": False  # 不使用流式传输
+            }
+            
+            # 添加可选参数
+            if 'temperature' in kwargs:
+                payload['temperature'] = kwargs['temperature']
+            if 'max_tokens' in kwargs:
+                payload['max_tokens'] = kwargs['max_tokens']
+            if 'top_p' in kwargs:
+                payload['top_p'] = kwargs['top_p']
+            if 'top_k' in kwargs:
+                payload['top_k'] = kwargs['top_k']
+            
+            # 硅基流动的API端点
+            # 智能构建API URL，避免重复添加/v1
+            if self.base_url.endswith('/v1'):
+                api_url = f"{self.base_url}/chat/completions"
+            else:
+                api_url = f"{self.base_url}/v1/chat/completions"
+            
+            print(f"SiliconFlowAdapter请求URL: {api_url}")
+            print(f"SiliconFlowAdapter请求payload: {payload}")
+            
+            try:
+                # 发送 POST 请求到硅基流动的聊天补全接口
+                async with session.post(
+                    api_url,
+                    json=payload,
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
+                ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"硅基流动请求失败，状态码: {response.status}，详情: {response_text}")
+                        
+                        # 尝试解析错误响应
+                        try:
+                            error_data = await response.json()
+                            if 'message' in error_data:
+                                error_msg = error_data['message']
+                                if 'Model does not exist' in error_msg or 'model does not exist' in error_msg:
+                                    raise ValueError(f"模型 '{model}' 不存在，请检查模型名称是否正确。错误详情: {error_msg}")
+                                else:
+                                    raise Exception(f"硅基流动API请求失败: {response.status} - {error_msg}")
+                            else:
+                                raise Exception(f"硅基流动API请求失败: {response.status} - {response_text}")
+                        except Exception as parse_error:
+                            # 如果无法解析JSON，使用原始错误信息
+                            raise Exception(f"硅基流动API请求失败: {response.status} - {response_text}")
+                    
+                    # 解析 JSON 响应
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"硅基流动响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析硅基流动API响应: {str(e)}")
+                    
+                    # 检查响应格式
+                    if not result or 'choices' not in result or not result['choices']:
+                        logger.error(f"硅基流动响应格式无效: {result}")
+                        raise ValueError("硅基流动响应格式无效，缺少choices字段")
+                    
+                    # 返回聊天补全结果
+                    choice = result['choices'][0]
+                    if 'message' not in choice or 'content' not in choice['message']:
+                        logger.error(f"硅基流动响应格式异常: {choice}")
+                        raise ValueError("硅基流动响应格式无效，缺少message.content")
+                    
+                    # 记录使用信息（如果存在）
+                    if 'usage' in result:
+                        logger.debug(f"硅基流动API使用情况: 输入tokens: {result['usage'].get('prompt_tokens', '未知')}, "
+                                   f"输出tokens: {result['usage'].get('completion_tokens', '未知')}")
+                    
+                    return choice['message']['content']
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"硅基流动请求客户端错误: {str(e)}")
+                raise
+            except Exception as e:
+                # 捕获其他未知异常并记录错误日志
+                logger.error(f"硅基流动请求失败: {str(e)}")
                 # 重新抛出异常
                 raise

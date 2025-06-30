@@ -3,7 +3,9 @@ import logging
 # 从 typing 模块导入 Dict 和 Any，用于类型提示
 from typing import Dict, Any, Optional
 # 从 api_adapter 模块导入 BaseAdapter，用于继承
-from api_adapter import BaseAdapter, OllamaAdapter, OpenAIAdapter, AnthropicAdapter, MetaAdapter, GoogleAdapter, CohereAdapter, ReplicateAdapter, AliyunAdapter, BaiduAdapter, DeepSeekAdapter, MoonshotAdapter, ZhipuAdapter, SparkAdapter, MinimaxAdapter, SenseChatAdapter, XunfeiAdapter, CustomAdapter
+from api_adapter import BaseAdapter, OllamaAdapter, OpenAIAdapter, AnthropicAdapter, MetaAdapter, GoogleAdapter, CohereAdapter, ReplicateAdapter, AliyunAdapter, BaiduAdapter, DeepSeekAdapter, MoonshotAdapter, ZhipuAdapter, SparkAdapter, MinimaxAdapter, SenseChatAdapter, XunfeiAdapter, CustomAdapter, SiliconFlowAdapter
+import json
+import os
 
 # 获取一个 logger 实例，用于记录日志
 logger = logging.getLogger(__name__)
@@ -11,15 +13,71 @@ logger = logging.getLogger(__name__)
 # 定义 MCP 类，用于管理 LLM 服务提供商
 class MCP:
     # 构造函数，初始化提供商字典、当前提供商名称和配置字典
-    def __init__(self):
+    def __init__(self, config_file="mcp_config.json"):
         self.providers: Dict[str, BaseAdapter] = {}  # 存储 LLM 服务提供商实例
         self.current_provider: Optional[str] = None  # 当前使用的 LLM 服务提供商名称
         self.configurations: Dict[str, Dict] = {}  # 存储提供商的配置信息
+        self.config_file = config_file  # 配置文件路径
+        
+        # 确保配置目录存在
+        self._ensure_config_dir()
+        
+        # 加载保存的配置
+        self.load_configurations()
+        
+    def _ensure_config_dir(self):
+        """确保配置目录存在"""
+        config_dir = os.path.dirname(self.config_file)
+        if config_dir and not os.path.exists(config_dir):
+            try:
+                os.makedirs(config_dir, exist_ok=True)
+                print(f"创建配置目录: {config_dir}")
+            except Exception as e:
+                print(f"创建配置目录失败: {str(e)}")
+    
+    def set_config_file(self, config_file: str):
+        """设置配置文件路径"""
+        self.config_file = config_file
+        self._ensure_config_dir()
+        # 重新加载配置
+        self.load_configurations()
+        
+    def load_configurations(self):
+        """从文件加载配置"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.configurations = data.get('configurations', {})
+                    self.current_provider = data.get('current_provider')
+                    print(f"已加载配置: {len(self.configurations)} 个提供商")
+                    if self.current_provider:
+                        print(f"当前提供商: {self.current_provider}")
+            else:
+                print("配置文件不存在，将创建新的配置")
+        except Exception as e:
+            print(f"加载配置失败: {str(e)}")
+            self.configurations = {}
+            self.current_provider = None
+    
+    def save_configurations(self):
+        """保存配置到文件"""
+        try:
+            data = {
+                'configurations': self.configurations,
+                'current_provider': self.current_provider
+            }
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"配置已保存到: {self.config_file}")
+        except Exception as e:
+            print(f"保存配置失败: {str(e)}")
         
     # 保存提供商配置的方法
     def save_configuration(self, name: str, config: Dict[str, Any]):
         """保存提供商配置"""
         self.configurations[name] = config
+        self.save_configurations()
         
     # 获取已保存配置的方法
     def get_configuration(self, name: str) -> Dict[str, Any]:
@@ -86,12 +144,18 @@ class MCP:
             self.providers[name] = SenseChatAdapter(**constructor_params)
         elif name_lower == 'xunfei':
             self.providers[name] = XunfeiAdapter(**constructor_params)
-        elif name_lower == 'custom' or name == '硅基流动' or name == '其他':
+        elif name_lower == 'custom' or name == '其他':
             print(f"创建自定义适配器: {name}")
             # 为自定义提供商提供默认的base_url
             if 'base_url' not in constructor_params:
                 constructor_params['base_url'] = "https://api.example.com"  # 默认URL，用户需要根据实际情况修改
             self.providers[name] = CustomAdapter(**constructor_params)
+        elif name == '硅基流动':
+            print(f"创建硅基流动适配器: {name}")
+            # 为硅基流动提供默认的base_url
+            if 'base_url' not in constructor_params:
+                constructor_params['base_url'] = "https://api.siliconflow.cn"
+            self.providers[name] = SiliconFlowAdapter(**constructor_params)
         else:
             # 如果是不支持的提供商类型，则抛出 ValueError 异常
             print(f"不支持的提供商类型: {name}")
@@ -106,12 +170,13 @@ class MCP:
         if name not in self.providers:
             raise KeyError(f"未注册的提供商: {name}")
         self.current_provider = name  # 设置当前提供商
+        self.save_configurations()  # 保存配置
         logger.info(f"已切换到LLM服务提供商: {name}")  # 记录日志
 
     # 处理聊天请求并路由到当前提供商的方法
     async def handle_request(self, messages: list, model: str) -> str:
         """处理聊天请求并路由到当前提供商"""
-        print(f"处理聊天请求: 当前提供商={self.current_provider}, 模型={model}")
+        print(f"处理聊天请求: 当前提供商={self.current_provider}, 传入模型={model}")
         
         # 检查是否已选择 LLM 服务提供商
         if not self.current_provider:
@@ -129,6 +194,11 @@ class MCP:
         # 使用配置中保存的模型名称，如果没有则使用传入的模型名称
         actual_model = saved_config.get('model', model)
         print(f"实际使用的模型: {actual_model}")
+        print(f"模型名称类型: {type(actual_model)}")
+        
+        # 检查模型名称是否为空或无效
+        if not actual_model or not str(actual_model).strip():
+            raise ValueError(f"模型名称无效: '{actual_model}'，请在设置页面配置正确的模型名称")
         
         # 提取聊天参数
         chat_params = {}
@@ -167,4 +237,5 @@ class MCP:
         if not isinstance(config, dict):
             raise ValueError("导入的配置必须是字典格式")
         self.configurations.update(config)  # 更新配置
+        self.save_configurations()  # 保存配置
         logger.info("MCP配置已成功导入")  # 记录日志

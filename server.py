@@ -12,6 +12,9 @@ import api_adapter
 # from chat_history import ChatHistory  # 暂时注释掉，因为文件为空
 # 导入Optional类型
 from typing import Optional, List
+import datetime
+import os
+import json
 
 # 创建 FastAPI 应用实例
 app = FastAPI()
@@ -103,6 +106,11 @@ class SwitchProviderRequest(BaseModel):
 async def switch_provider(request: SwitchProviderRequest):
     try:
         print(f"切换提供商: 提供商={request.provider_name}, 配置={request.config}")
+        
+        # 先保存配置到本地存储
+        mcp.save_configuration(request.provider_name, request.config)
+        print(f"配置已保存到本地存储: {request.provider_name}")
+        
         # 检查提供商是否已经存在，如果不存在则添加
         if request.provider_name not in mcp.providers:
             print(f"提供商 {request.provider_name} 不存在，正在添加...")
@@ -112,6 +120,7 @@ async def switch_provider(request: SwitchProviderRequest):
             except Exception as add_error:
                 print(f"添加提供商失败: {str(add_error)}")
                 raise HTTPException(status_code=500, detail=f"添加提供商失败: {str(add_error)}")
+        
         # 切换当前提供商
         try:
             mcp.switch_current_provider(request.provider_name)
@@ -119,7 +128,8 @@ async def switch_provider(request: SwitchProviderRequest):
         except Exception as switch_error:
             print(f"切换提供商失败: {str(switch_error)}")
             raise HTTPException(status_code=500, detail=f"切换提供商失败: {str(switch_error)}")
-        return {"status": "success"}
+        
+        return {"status": "success", "message": f"提供商 {request.provider_name} 配置成功"}
     except HTTPException:
         # 重新抛出HTTP异常
         raise
@@ -234,6 +244,196 @@ async def clear_chat_histories():
     # chat_history.clear_all_histories()
     # return {"status": "success"}
     return {"status": "success", "message": "聊天历史功能暂未实现"}
+
+# 定义获取当前配置的 GET 接口
+@app.get("/current_config")
+async def get_current_config():
+    """获取当前配置信息"""
+    try:
+        if not mcp.current_provider:
+            return {
+                "status": "no_config",
+                "message": "未配置任何提供商"
+            }
+        
+        current_config = mcp.configurations.get(mcp.current_provider, {})
+        return {
+            "status": "success",
+            "provider_name": mcp.current_provider,
+            "config": current_config
+        }
+    except Exception as e:
+        print(f"获取当前配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
+# 定义获取所有已保存配置的 GET 接口
+@app.get("/saved_configs")
+async def get_saved_configs():
+    """获取所有已保存的配置"""
+    try:
+        return {
+            "status": "success",
+            "configurations": mcp.configurations,
+            "current_provider": mcp.current_provider
+        }
+    except Exception as e:
+        print(f"获取已保存配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
+# 定义删除配置的 DELETE 接口
+@app.delete("/config/{provider_name}")
+async def delete_config(provider_name: str):
+    """删除指定提供商的配置"""
+    try:
+        if provider_name in mcp.configurations:
+            del mcp.configurations[provider_name]
+            # 如果删除的是当前提供商，清空当前提供商
+            if mcp.current_provider == provider_name:
+                mcp.current_provider = None
+            mcp.save_configurations()
+            return {"status": "success", "message": f"配置 {provider_name} 已删除"}
+        else:
+            raise HTTPException(status_code=404, detail=f"配置 {provider_name} 不存在")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"删除配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除配置失败: {str(e)}")
+
+# 定义设置配置文件路径的请求体模型
+class ConfigPathRequest(BaseModel):
+    config_path: str  # 配置文件路径
+
+# 定义设置配置文件路径的 POST 接口
+@app.post("/set_config_path")
+async def set_config_path(request: ConfigPathRequest):
+    """设置配置文件路径"""
+    try:
+        # 验证路径格式
+        if not request.config_path.strip():
+            raise HTTPException(status_code=400, detail="配置文件路径不能为空")
+        
+        # 设置新的配置文件路径
+        mcp.set_config_file(request.config_path)
+        
+        return {
+            "status": "success",
+            "message": f"配置文件路径已设置为: {request.config_path}",
+            "config_path": request.config_path
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"设置配置文件路径失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"设置配置文件路径失败: {str(e)}")
+
+# 定义获取配置文件路径的 GET 接口
+@app.get("/get_config_path")
+async def get_config_path():
+    """获取当前配置文件路径"""
+    try:
+        return {
+            "status": "success",
+            "config_path": mcp.config_file
+        }
+    except Exception as e:
+        print(f"获取配置文件路径失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取配置文件路径失败: {str(e)}")
+
+# 定义备份配置的 GET 接口
+@app.get("/backup_config")
+async def backup_config():
+    """备份当前配置"""
+    try:
+        # 获取当前配置
+        backup_data = {
+            "configurations": mcp.configurations,
+            "current_provider": mcp.current_provider,
+            "config_file": mcp.config_file,
+            "backup_time": str(datetime.datetime.now()),
+            "version": "1.0"
+        }
+        
+        # 生成备份文件名
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"mcp_config_backup_{timestamp}.json"
+        
+        # 保存备份文件
+        backup_path = os.path.join(os.path.dirname(mcp.config_file), backup_filename)
+        with open(backup_path, 'w', encoding='utf-8') as f:
+            json.dump(backup_data, f, ensure_ascii=False, indent=2)
+        
+        return {
+            "status": "success",
+            "message": f"配置备份成功: {backup_filename}",
+            "backup_file": backup_filename,
+            "backup_path": backup_path
+        }
+    except Exception as e:
+        print(f"备份配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"备份配置失败: {str(e)}")
+
+# 定义恢复配置的 POST 接口
+@app.post("/restore_config")
+async def restore_config(backup_data: dict):
+    """从备份恢复配置"""
+    try:
+        # 验证备份数据格式
+        if "configurations" not in backup_data:
+            raise HTTPException(status_code=400, detail="无效的备份文件格式")
+        
+        # 恢复配置
+        mcp.configurations = backup_data.get("configurations", {})
+        mcp.current_provider = backup_data.get("current_provider")
+        
+        # 保存配置
+        mcp.save_configurations()
+        
+        return {
+            "status": "success",
+            "message": "配置恢复成功",
+            "restored_providers": list(mcp.configurations.keys()),
+            "current_provider": mcp.current_provider
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"恢复配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"恢复配置失败: {str(e)}")
+
+# 定义调试信息的 GET 接口
+@app.get("/debug_info")
+async def get_debug_info():
+    """获取调试信息"""
+    try:
+        debug_info = {
+            "current_provider": mcp.current_provider,
+            "saved_configurations": mcp.configurations,
+            "available_providers": list(mcp.providers.keys()),
+            "config_file_path": mcp.config_file,
+            "config_file_exists": os.path.exists(mcp.config_file)
+        }
+        
+        # 如果有当前提供商，添加详细信息
+        if mcp.current_provider:
+            current_config = mcp.configurations.get(mcp.current_provider, {})
+            debug_info["current_provider_config"] = {
+                "api_key": current_config.get('api_key', '')[:10] + "..." if current_config.get('api_key') else '未设置',
+                "model": current_config.get('model', '未设置'),
+                "base_url": current_config.get('base_url', '未设置'),
+                "temperature": current_config.get('temperature', '未设置'),
+                "max_tokens": current_config.get('max_tokens', '未设置'),
+                "top_p": current_config.get('top_p', '未设置'),
+                "top_k": current_config.get('top_k', '未设置')
+            }
+        
+        return {
+            "status": "success",
+            "debug_info": debug_info
+        }
+    except Exception as e:
+        print(f"获取调试信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取调试信息失败: {str(e)}")
 
 # 当作为主程序运行时
 if __name__ == "__main__":

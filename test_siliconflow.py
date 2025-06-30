@@ -1,102 +1,167 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-测试硅基流动API的脚本
+硅基流动API测试脚本
+用于测试API连接、获取模型列表和验证模型名称
 """
+
 import asyncio
 import aiohttp
 import json
+import sys
 
-async def test_siliconflow_direct():
-    """直接测试硅基流动API"""
-    # 请替换为你的实际API密钥和模型名称
-    api_key = "your_api_key_here"  # 请替换为实际的API密钥
-    model = "your_model_name_here"  # 请替换为实际的模型名称
+class SiliconFlowTester:
+    def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn"):
+        self.api_key = api_key
+        self.base_url = base_url.rstrip('/')
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
     
-    url = "https://api.siliconflow.cn/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "model": model,
-        "messages": [
-            {"role": "user", "content": "你好，请介绍一下你自己"}
-        ],
-        "stream": False
-    }
-    
-    print(f"测试硅基流动API:")
-    print(f"URL: {url}")
-    print(f"Headers: {headers}")
-    print(f"Data: {data}")
-    
-    async with aiohttp.ClientSession() as session:
+    async def test_connection(self):
+        """测试API连接"""
+        print(f"🔗 测试连接到: {self.base_url}")
         try:
-            async with session.post(url, json=data, headers=headers) as response:
-                print(f"响应状态: {response.status}")
-                response_text = await response.text()
-                print(f"响应内容: {response_text}")
+            async with aiohttp.ClientSession() as session:
+                # 尝试获取模型列表
+                # 智能构建models URL，避免重复添加/v1
+                if self.base_url.endswith('/v1'):
+                    models_url = f"{self.base_url}/models"
+                else:
+                    models_url = f"{self.base_url}/v1/models"
+                print(f"📋 获取模型列表: {models_url}")
                 
-                if response.status == 200:
-                    result = json.loads(response_text)
-                    if 'choices' in result and result['choices']:
-                        content = result['choices'][0]['message']['content']
-                        print(f"AI回复: {content}")
+                async with session.get(models_url, headers=self.headers) as response:
+                    if response.status == 200:
+                        models_data = await response.json()
+                        print("✅ API连接成功!")
+                        print(f"📊 响应状态: {response.status}")
+                        return models_data
+                    else:
+                        error_text = await response.text()
+                        print(f"❌ API连接失败: {response.status}")
+                        print(f"错误详情: {error_text}")
+                        return None
+        except Exception as e:
+            print(f"❌ 连接异常: {str(e)}")
+            return None
+    
+    async def get_models(self):
+        """获取可用模型列表"""
+        models_data = await self.test_connection()
+        if models_data and 'data' in models_data:
+            models = models_data['data']
+            print(f"\n📋 可用模型列表 ({len(models)} 个):")
+            for i, model in enumerate(models, 1):
+                model_id = model.get('id', '未知')
+                model_name = model.get('object', '未知')
+                print(f"  {i}. {model_id} ({model_name})")
+            return [model.get('id') for model in models]
+        else:
+            print("❌ 无法获取模型列表")
+            return []
+    
+    async def test_chat_completion(self, model: str, test_message: str = "你好"):
+        """测试聊天补全"""
+        print(f"\n💬 测试聊天补全 - 模型: {model}")
+        
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "user", "content": test_message}
+            ],
+            "stream": False
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 智能构建chat URL，避免重复添加/v1
+                if self.base_url.endswith('/v1'):
+                    chat_url = f"{self.base_url}/chat/completions"
+                else:
+                    chat_url = f"{self.base_url}/v1/chat/completions"
+                print(f"🌐 请求URL: {chat_url}")
+                print(f"📤 请求数据: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+                
+                async with session.post(
+                    chat_url,
+                    json=payload,
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)
+                ) as response:
+                    response_text = await response.text()
+                    print(f"📥 响应状态: {response.status}")
+                    
+                    if response.status == 200:
+                        result = json.loads(response_text)
+                        print("✅ 聊天补全成功!")
+                        print(f"🤖 回复: {result['choices'][0]['message']['content']}")
                         return True
                     else:
-                        print("响应格式不正确")
+                        print(f"❌ 聊天补全失败: {response.status}")
+                        print(f"错误详情: {response_text}")
+                        
+                        # 尝试解析错误信息
+                        try:
+                            error_data = json.loads(response_text)
+                            if 'message' in error_data:
+                                print(f"错误消息: {error_data['message']}")
+                        except:
+                            pass
                         return False
-                else:
-                    print(f"请求失败: {response_text}")
-                    return False
         except Exception as e:
-            print(f"请求异常: {e}")
+            print(f"❌ 请求异常: {str(e)}")
             return False
 
-async def test_custom_adapter():
-    """测试CustomAdapter"""
-    from api_adapter import CustomAdapter
-    
-    # 请替换为你的实际配置
-    api_key = "your_api_key_here"  # 请替换为实际的API密钥
-    base_url = "https://api.siliconflow.cn/v1"  # 硅基流动的base_url
-    model = "your_model_name_here"  # 请替换为实际的模型名称
-    
-    print(f"测试CustomAdapter:")
-    print(f"API Key: {api_key[:10]}..." if len(api_key) > 10 else f"API Key: {api_key}")
-    print(f"Base URL: {base_url}")
-    print(f"Model: {model}")
-    
-    try:
-        adapter = CustomAdapter(api_key=api_key, base_url=base_url)
-        messages = [{"role": "user", "content": "你好，请介绍一下你自己"}]
-        
-        result = await adapter.chat_completion(messages, model)
-        print(f"CustomAdapter测试成功: {result}")
-        return True
-    except Exception as e:
-        print(f"CustomAdapter测试失败: {e}")
-        return False
-
 async def main():
-    """主测试函数"""
-    print("开始测试硅基流动API...")
+    print("🚀 硅基流动API测试工具")
+    print("=" * 50)
     
-    print("\n注意: 请先替换脚本中的API密钥和模型名称")
-    print("1. 在test_siliconflow_direct()函数中替换api_key和model")
-    print("2. 在test_custom_adapter()函数中替换api_key和model")
+    # 获取API密钥
+    api_key = input("请输入您的API密钥: ").strip()
+    if not api_key:
+        print("❌ API密钥不能为空")
+        return
     
-    # 取消注释下面的行来运行测试
-    # print("\n1. 直接测试硅基流动API:")
-    # success1 = await test_siliconflow_direct()
+    # 获取Base URL
+    base_url = input("请输入Base URL (默认: https://api.siliconflow.cn): ").strip()
+    if not base_url:
+        base_url = "https://api.siliconflow.cn"
     
-    # print("\n2. 测试CustomAdapter:")
-    # success2 = await test_custom_adapter()
+    # 创建测试器
+    tester = SiliconFlowTester(api_key, base_url)
     
-    # print(f"\n测试结果:")
-    # print(f"直接API测试: {'成功' if success1 else '失败'}")
-    # print(f"CustomAdapter测试: {'成功' if success2 else '失败'}")
+    # 测试连接和获取模型列表
+    models = await tester.get_models()
+    
+    if models:
+        print(f"\n🎯 找到 {len(models)} 个可用模型")
+        
+        # 让用户选择要测试的模型
+        if len(models) == 1:
+            test_model = models[0]
+            print(f"自动选择唯一模型: {test_model}")
+        else:
+            print("\n请选择要测试的模型:")
+            for i, model in enumerate(models, 1):
+                print(f"  {i}. {model}")
+            
+            try:
+                choice = int(input(f"请输入选择 (1-{len(models)}): ")) - 1
+                if 0 <= choice < len(models):
+                    test_model = models[choice]
+                else:
+                    print("❌ 无效选择")
+                    return
+            except ValueError:
+                print("❌ 请输入有效数字")
+                return
+        
+        # 测试聊天补全
+        await tester.test_chat_completion(test_model)
+    else:
+        print("❌ 无法获取模型列表，请检查API密钥和网络连接")
 
 if __name__ == "__main__":
     asyncio.run(main()) 
