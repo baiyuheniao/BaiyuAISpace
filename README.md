@@ -66,7 +66,7 @@ BaiyuAISpace/
 
 1. **克隆项目**
 ```bash
-git clone url
+git clone https://github.com/baiyuheniao/BaiyuAiSpace
 cd BaiyuAISpace
 ```
 
@@ -89,12 +89,12 @@ python server.py
 
 5. **启动前端服务**
 ```bash
-# 在frontend目录
-pnpm dev
+cd frontend
+pnpm run serve
 ```
 
 6. **访问应用**
-打开浏览器访问 `http://localhost:5173`
+打开浏览器访问 `http://localhost:8080`
 
 ## 📋 使用指南
 
@@ -190,11 +190,11 @@ pnpm dev
 
 如有问题或建议，请通过以下方式联系：
 - 提交GitHub Issue
-- 发送邮件至项目维护者
+- 发送邮件至baiyuheniao@gmail.com
 
 ---
 
-**注意**: 请确保遵守各AI服务商的使用条款和API限制。
+**注意**: 请确保遵守各AI服务商的使用条款和API限制。对于所有因使用本软件而造成的违法行为的后果，Baiyu不承担任何责任！
 
 ## 项目概述 | Overview
 统一管理多个LLM服务提供商的中间件，支持动态配置和切换不同AI服务商。采用前后端分离架构，前端基于Vue3+ElementPlus，后端使用Python异步框架。

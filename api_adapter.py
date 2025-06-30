@@ -1,3 +1,22 @@
+# This file is part of BaiyuAISpace.
+# Copyright (C) 2025 白Bai_YU雨
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+
+
+
 # 从 abc 模块导入 ABC（抽象基类）和 abstractmethod（抽象方法）
 from abc import ABC, abstractmethod
 # 导入 aiohttp 库，用于异步 HTTP 请求
