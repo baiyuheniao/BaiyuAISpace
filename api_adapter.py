@@ -1626,7 +1626,7 @@ class CustomAdapter(BaseAdapter):
                     
                     # 解析 JSON 响应
                     try:
-                    result = await response.json()
+                        result = await response.json()
                     except Exception as e:
                         logger.error(f"Custom响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
                         raise ValueError(f"无法解析Custom API响应: {str(e)}")
