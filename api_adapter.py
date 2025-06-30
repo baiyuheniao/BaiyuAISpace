@@ -1044,29 +1044,29 @@ class ZhipuAdapter(BaseAdapter):
             logger.warning("PyJWT库未安装，将使用备用认证方式")
             return self.api_key
                 
-        import time
-        import uuid
-        
-        # 当前时间戳（秒）
-        iat = int(time.time())
-        # 过期时间戳
-        exp = iat + expiration_seconds
-        # 负载数据
-        payload = {
-            "api_key": self.api_id,
-            "exp": exp,
-            "timestamp": iat,
-            "uuid": str(uuid.uuid4())  # 随机UUID，防止重放攻击
-        }
-        
-        # 使用HS256算法和API密钥的secret部分签名
-        token = jwt.encode(
-            payload,
-            self.api_secret,
-            algorithm="HS256"
-        )
-        
-        return token
+            import time
+            import uuid
+            
+            # 当前时间戳（秒）
+            iat = int(time.time())
+            # 过期时间戳
+            exp = iat + expiration_seconds
+            # 负载数据
+            payload = {
+                "api_key": self.api_id,
+                "exp": exp,
+                "timestamp": iat,
+                "uuid": str(uuid.uuid4())  # 随机UUID，防止重放攻击
+            }
+            
+            # 使用HS256算法和API密钥的secret部分签名
+            token = jwt.encode(
+                payload,
+                self.api_secret,
+                algorithm="HS256"
+            )
+            
+            return token
 
     # 实现 chat_completion 抽象方法，用于与智谱服务进行聊天补全
     async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.7, max_tokens=1024) -> str:
@@ -1626,7 +1626,7 @@ class CustomAdapter(BaseAdapter):
                     
                     # 解析 JSON 响应
                     try:
-                        result = await response.json()
+                    result = await response.json()
                     except Exception as e:
                         logger.error(f"Custom响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
                         raise ValueError(f"无法解析Custom API响应: {str(e)}")

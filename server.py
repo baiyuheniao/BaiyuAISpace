@@ -9,7 +9,7 @@ from mcp_module import MCP
 # 导入 api_adapter 模块
 import api_adapter
 # 导入聊天历史记录管理模块
-# from chat_history import ChatHistory  # 暂时注释掉，因为文件为空
+from chat_history import ChatHistory  # 取消注释，已实现
 # 导入Optional类型
 from typing import Optional, List
 import datetime
@@ -32,7 +32,7 @@ app.add_middleware(
 mcp = MCP()
 
 # 创建聊天历史记录管理实例
-# chat_history = ChatHistory()  # 暂时注释掉，因为文件为空
+chat_history = ChatHistory()  # 取消注释，已实现
 
 # 定义聊天请求的数据模型
 class ChatRequest(BaseModel):
@@ -62,10 +62,28 @@ async def chat_completions(request: ChatRequest):
         if mcp.current_provider not in mcp.providers:
             raise HTTPException(status_code=500, detail=f"当前提供商 {mcp.current_provider} 不存在")
         
+        # 聊天历史ID处理
+        history_id = request.history_id
+        if history_id:
+            # 只保存最后一条用户消息，避免重复
+            if request.messages and isinstance(request.messages, list):
+                last_user_msg = None
+                # 倒序找最后一条role为user的消息
+                for msg in reversed(request.messages):
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        last_user_msg = msg
+                        break
+                if last_user_msg:
+                    chat_history.add_message(history_id, last_user_msg)
+        
         # 调用 MCP 实例处理聊天请求
         response = await mcp.handle_request(request.messages, request.model)
-        
         print(f"聊天请求处理成功，响应长度: {len(response)}")
+        
+        # 保存AI回复到历史
+        if history_id:
+            ai_msg = {"role": "assistant", "content": response}
+            chat_history.add_message(history_id, ai_msg)
         
         # 返回聊天补全结果
         return {
@@ -181,69 +199,61 @@ async def import_mcp_config(config: dict):
 # 创建新的聊天历史记录
 @app.post("/chat/histories")
 async def create_chat_history(request: Optional[HistoryRequest] = None):
-    # title = None
-    # if request and request.title:
-    #     title = request.title
-    # history_id = chat_history.create_history(title)
-    # return {"status": "success", "history_id": history_id}
-    return {"status": "success", "message": "聊天历史功能暂未实现"}
+    title = None
+    if request and request.title:
+        title = request.title
+    history_id = chat_history.create_history(title)
+    return {"status": "success", "history_id": history_id}
 
 # 获取所有聊天历史记录
 @app.get("/chat/histories")
 async def get_chat_histories():
-    # histories = chat_history.get_histories()
-    # return {"status": "success", "histories": histories}
-    return {"status": "success", "histories": [], "message": "聊天历史功能暂未实现"}
+    histories = chat_history.get_histories()
+    return {"status": "success", "histories": histories}
 
 # 获取收藏的聊天历史记录
 @app.get("/chat/favorites")
 async def get_favorite_histories():
-    # favorites = chat_history.get_favorites()
-    # return {"status": "success", "favorites": favorites}
-    return {"status": "success", "favorites": [], "message": "聊天历史功能暂未实现"}
+    favorites = chat_history.get_favorites()
+    return {"status": "success", "favorites": favorites}
 
-# 获取特定聊天历史记录
+# 获取指定聊天历史记录
 @app.get("/chat/histories/{history_id}")
 async def get_chat_history(history_id: str):
-    # history = chat_history.get_history(history_id)
-    # if not history:
-    #     raise HTTPException(status_code=404, detail="聊天历史记录不存在")
-    # return {"status": "success", "history": history}
-    raise HTTPException(status_code=404, detail="聊天历史功能暂未实现")
+    history = chat_history.get_history(history_id)
+    if not history:
+        raise HTTPException(status_code=404, detail="聊天历史记录不存在")
+    return {"status": "success", "history": history}
 
 # 更新聊天历史记录标题
 @app.put("/chat/histories/{history_id}/title")
 async def update_chat_history_title(history_id: str, request: HistoryTitleRequest):
-    # success = chat_history.update_history_title(history_id, request.title)
-    # if not success:
-    #     raise HTTPException(status_code=404, detail="聊天历史记录不存在")
-    # return {"status": "success"}
-    raise HTTPException(status_code=404, detail="聊天历史功能暂未实现")
+    success = chat_history.update_history_title(history_id, request.title)
+    if not success:
+        raise HTTPException(status_code=404, detail="聊天历史记录不存在")
+    return {"status": "success"}
 
 # 切换聊天历史记录收藏状态
 @app.put("/chat/histories/{history_id}/favorite")
 async def toggle_chat_history_favorite(history_id: str):
-    # success = chat_history.toggle_favorite(history_id)
-    # if not success:
-    #     raise HTTPException(status_code=404, detail="聊天历史记录不存在")
-    # return {"status": "success"}
-    raise HTTPException(status_code=404, detail="聊天历史功能暂未实现")
+    success = chat_history.toggle_favorite(history_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="聊天历史记录不存在")
+    return {"status": "success"}
 
 # 删除聊天历史记录
 @app.delete("/chat/histories/{history_id}")
 async def delete_chat_history(history_id: str):
-    # success = chat_history.delete_history(history_id)
-    # if not success:
-    #     raise HTTPException(status_code=404, detail="聊天历史记录不存在")
-    # return {"status": "success"}
-    raise HTTPException(status_code=404, detail="聊天历史功能暂未实现")
+    success = chat_history.delete_history(history_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="聊天历史记录不存在")
+    return {"status": "success"}
 
 # 清空所有聊天历史记录
 @app.delete("/chat/histories")
 async def clear_chat_histories():
-    # chat_history.clear_all_histories()
-    # return {"status": "success"}
-    return {"status": "success", "message": "聊天历史功能暂未实现"}
+    chat_history.clear_all_histories()
+    return {"status": "success"}
 
 # 定义获取当前配置的 GET 接口
 @app.get("/current_config")

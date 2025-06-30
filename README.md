@@ -66,7 +66,7 @@ BaiyuAISpace/
 
 1. **克隆项目**
 ```bash
-git clone <repository-url>
+git clone url
 cd BaiyuAISpace
 ```
 

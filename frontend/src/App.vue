@@ -1,46 +1,19 @@
 <template>
   <!-- 应用程序的根容器 -->
   <div id="app">
-    <!-- 整体布局容器 -->
-    <el-container class="app-container">
-      <!-- 头部区域 -->
-      <el-header class="app-header">
-        <!-- 头部内容容器 -->
-        <div class="header-content">
-          <!-- 应用标题 -->
-          <h1 class="app-title">BaiyuAISpace</h1>
-          <!-- 导航区域 -->
-          <div class="app-nav">
-            <!-- 导航按钮，遍历 navLinks 数组生成 -->
-            <!-- 导航按钮，根据当前路由路径判断是否激活，点击时跳转到对应路由 -->
-            <el-button 
-              type="link" 
-              v-for="link in navLinks" 
-              :key="link.path"
-              :class="{ active: $route.path === link.path }"
-              @click="$router.push(link.path)"
-            >
-              {{ link.title }}
-            </el-button>
-          </div>
-        </div>
-      </el-header>
-      
-      <!-- 主内容区域容器 -->
-      <el-container>
-        <!-- 主内容区域 -->
-        <el-main class="app-main">
-          <!-- 路由视图，显示当前路由对应的组件 -->
-          <router-view />
-        </el-main>
-      </el-container>
-    </el-container>
+    <SidebarNav />
+    <router-view />
   </div>
 </template>
 
 <script>
+import SidebarNav from './components/SidebarNav.vue'
+
 export default {
   name: 'App', // 组件名称
+  components: {
+    SidebarNav
+  },
   data() { // 组件数据
     return {
       // 导航链接数组

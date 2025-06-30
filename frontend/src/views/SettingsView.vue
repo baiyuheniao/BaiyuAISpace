@@ -1,245 +1,249 @@
 <template>
-  <!-- 设置页面容器 -->
-  <div class="settings-container">
-    <!-- 设置头部区域 -->
-    <div class="settings-header">
-      <h2 class="settings-title">服务商配置</h2>
-      <p class="settings-description">选择并配置您的AI服务提供商</p>
-    </div>
-    
-    <!-- 已保存配置列表 -->
-    <el-card class="saved-configs-card" v-if="Object.keys(savedConfigs).length > 0">
-      <template #header>
-        <div class="card-header">
-          <span>已保存的配置</span>
-          <el-button type="primary" size="small" @click="loadSavedConfigs">
-            <el-icon><Refresh /></el-icon>
-            刷新
-          </el-button>
+  <div class="settings-main-container">
+    <div class="settings-content">
+      <!-- 设置页面容器 -->
+      <div class="settings-container">
+        <!-- 设置头部区域 -->
+        <div class="settings-header">
+          <h2 class="settings-title">服务商配置</h2>
+          <p class="settings-description">选择并配置您的AI服务提供商</p>
         </div>
-      </template>
-      <div class="saved-configs-list">
-        <div 
-          v-for="(config, providerName) in savedConfigs" 
-          :key="providerName" 
-          class="saved-config-item"
-          :class="{ 'current': providerName === currentProviderName }"
-        >
-          <div class="config-info">
-            <div class="provider-name">
-              {{ providerName }}
-              <el-tag v-if="providerName === currentProviderName" type="success" size="small">当前</el-tag>
-            </div>
-            <div class="config-details">
-              <span class="model-name">模型: {{ config.model || '未设置' }}</span>
-              <span class="api-key">API密钥: {{ maskApiKey(config.api_key) }}</span>
-            </div>
-          </div>
-          <div class="config-actions">
-            <el-button type="primary" size="small" @click="loadConfig(providerName, config)">
-              加载
-            </el-button>
-            <el-button type="danger" size="small" @click="deleteConfig(providerName)">
-              删除
-            </el-button>
-          </div>
-        </div>
-      </div>
-    </el-card>
-    
-    <!-- 设置卡片区域 -->
-    <el-card class="settings-card">
-      <template #header>
-        <div class="card-header">
-          <span>配置新服务商</span>
-          <el-button v-if="currentProvider" type="info" size="small" @click="clearForm">
-            清空表单
-          </el-button>
-        </div>
-      </template>
-      
-      <!-- 配置文件路径设置 -->
-      <div class="config-path-section">
-        <h3 class="section-title">配置文件存储设置</h3>
-        <el-form label-position="top">
-          <el-form-item label="配置文件路径">
-            <div class="config-path-input">
-              <el-input 
-                v-model="configPath" 
-                placeholder="请输入配置文件存储路径，例如: ./config/mcp_config.json"
-                class="path-input"
-              />
-              <el-button type="primary" @click="setConfigPath" :loading="isSettingPath">
-                设置路径
-              </el-button>
-            </div>
-            <div class="path-info">
-              <span class="current-path">当前路径: {{ currentConfigPath }}</span>
-              <el-button type="text" size="small" @click="loadConfigPath">
+        
+        <!-- 已保存配置列表 -->
+        <el-card class="saved-configs-card" v-if="Object.keys(savedConfigs).length > 0">
+          <template #header>
+            <div class="card-header">
+              <span>已保存的配置</span>
+              <el-button type="primary" size="small" @click="loadSavedConfigs">
                 <el-icon><Refresh /></el-icon>
                 刷新
               </el-button>
             </div>
-          </el-form-item>
-        </el-form>
-        
-        <!-- 备份和恢复功能 -->
-        <div class="backup-restore-section">
-          <h4 class="subsection-title">配置备份与恢复</h4>
-          <div class="backup-actions">
-            <el-button type="success" @click="backupConfig" :loading="isBackingUp">
-              <el-icon><Download /></el-icon>
-              备份配置
-            </el-button>
-            <el-upload
-              ref="restoreUpload"
-              :show-file-list="false"
-              :before-upload="beforeRestoreUpload"
-              :on-success="handleRestoreSuccess"
-              :on-error="handleRestoreError"
-              accept=".json"
-              action="#"
-              :http-request="handleRestoreFile"
+          </template>
+          <div class="saved-configs-list">
+            <div 
+              v-for="(config, providerName) in savedConfigs" 
+              :key="providerName" 
+              class="saved-config-item"
+              :class="{ 'current': providerName === currentProviderName }"
             >
-              <el-button type="warning" :loading="isRestoring">
-                <el-icon><Upload /></el-icon>
-                恢复配置
+              <div class="config-info">
+                <div class="provider-name">
+                  {{ providerName }}
+                  <el-tag v-if="providerName === currentProviderName" type="success" size="small">当前</el-tag>
+                </div>
+                <div class="config-details">
+                  <span class="model-name">模型: {{ config.model || '未设置' }}</span>
+                  <span class="api-key">API密钥: {{ maskApiKey(config.api_key) }}</span>
+                </div>
+              </div>
+              <div class="config-actions">
+                <el-button type="primary" size="small" @click="loadConfig(providerName, config)">
+                  加载
+                </el-button>
+                <el-button type="danger" size="small" @click="deleteConfig(providerName)">
+                  删除
+                </el-button>
+              </div>
+            </div>
+          </div>
+        </el-card>
+        
+        <!-- 设置卡片区域 -->
+        <el-card class="settings-card">
+          <template #header>
+            <div class="card-header">
+              <span>配置新服务商</span>
+              <el-button v-if="currentProvider" type="info" size="small" @click="clearForm">
+                清空表单
               </el-button>
-            </el-upload>
-            <el-button type="info" @click="showDebugInfo">
-              <el-icon><InfoFilled /></el-icon>
-              调试信息
-            </el-button>
+            </div>
+          </template>
+          
+          <!-- 配置文件路径设置 -->
+          <div class="config-path-section">
+            <h3 class="section-title">配置文件存储设置</h3>
+            <el-form label-position="top">
+              <el-form-item label="配置文件路径">
+                <div class="config-path-input">
+                  <el-input 
+                    v-model="configPath" 
+                    placeholder="请输入配置文件存储路径，例如: ./config/mcp_config.json"
+                    class="path-input"
+                  />
+                  <el-button type="primary" @click="setConfigPath" :loading="isSettingPath">
+                    设置路径
+                  </el-button>
+                </div>
+                <div class="path-info">
+                  <span class="current-path">当前路径: {{ currentConfigPath }}</span>
+                  <el-button type="text" size="small" @click="loadConfigPath">
+                    <el-icon><Refresh /></el-icon>
+                    刷新
+                  </el-button>
+                </div>
+              </el-form-item>
+            </el-form>
+            
+            <!-- 备份和恢复功能 -->
+            <div class="backup-restore-section">
+              <h4 class="subsection-title">配置备份与恢复</h4>
+              <div class="backup-actions">
+                <el-button type="success" @click="backupConfig" :loading="isBackingUp">
+                  <el-icon><Download /></el-icon>
+                  备份配置
+                </el-button>
+                <el-upload
+                  ref="restoreUpload"
+                  :show-file-list="false"
+                  :before-upload="beforeRestoreUpload"
+                  :on-success="handleRestoreSuccess"
+                  :on-error="handleRestoreError"
+                  accept=".json"
+                  action="#"
+                  :http-request="handleRestoreFile"
+                >
+                  <el-button type="warning" :loading="isRestoring">
+                    <el-icon><Upload /></el-icon>
+                    恢复配置
+                  </el-button>
+                </el-upload>
+                <el-button type="info" @click="showDebugInfo">
+                  <el-icon><InfoFilled /></el-icon>
+                  调试信息
+                </el-button>
+              </div>
+            </div>
           </div>
-        </div>
+          
+          <!-- 分隔线 -->
+          <el-divider content-position="left">服务商配置</el-divider>
+          
+          <!-- 表单，标签位置在上方 -->
+          <el-form label-position="top">
+              <!-- API 提供商选择项 -->
+              <el-form-item label="API提供商">
+                <el-select v-model="currentProvider" placeholder="请选择API提供商" @change="handleProviderChange">
+                  <el-option v-for="provider in providers" :key="provider.name" :label="provider.name" :value="provider.name"></el-option>
+                </el-select>
+              </el-form-item>
+
+              <!-- 当选择了提供商后显示配置项 -->
+              <div v-if="currentProvider">
+                <!-- API 密钥输入项 -->
+                <el-form-item label="API 密钥" required>
+                  <el-input 
+                    v-model="apiKey" 
+                    placeholder="请输入您的 API 密钥" 
+                    type="password"
+                    show-password
+                  />
+                </el-form-item>
+
+                <!-- 模型名称输入项 -->
+                <el-form-item label="模型名称" required>
+                  <el-input 
+                    v-model="modelName" 
+                    placeholder="请输入调用的模型名称"
+                    class="api-input"
+                  />
+                </el-form-item>
+
+                <!-- Base URL 输入项，仅对自定义提供商显示 -->
+                <el-form-item label="API Base URL" v-if="isCustomProvider">
+                  <el-input 
+                    v-model="baseUrl" 
+                    placeholder="请输入API基础URL，例如: https://api.example.com"
+                    class="api-input"
+                  />
+                </el-form-item>
+
+                <!-- 参数设置行 -->
+                <el-row :gutter="20">
+                  <!-- Temperature 参数设置 -->
+                  <el-col :span="6">
+                    <el-form-item label="Temperature (0-2)">
+                      <el-input-number 
+                        v-model="temperature"
+                        :min="0"
+                        :max="2"
+                        :step="0.1"
+                        controls-position="right"
+                        placeholder="例如 0.7"
+                        class="param-input"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <!-- Max Tokens 参数设置 -->
+                  <el-col :span="6">
+                    <el-form-item label="Max Tokens">
+                      <el-input-number 
+                        v-model="maxTokens"
+                        :min="1"
+                        controls-position="right"
+                        placeholder="例如 1024"
+                        class="param-input"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <!-- Top K 参数设置 -->
+                  <el-col :span="6">
+                    <el-form-item label="Top K">
+                      <el-input-number 
+                        v-model="topK"
+                        :min="1"
+                        controls-position="right"
+                        placeholder="例如 40"
+                        class="param-input"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <!-- Top P 参数设置 -->
+                  <el-col :span="6">
+                    <el-form-item label="Top P (0-1)">
+                      <el-input-number 
+                        v-model="topP"
+                        :min="0"
+                        :max="1"
+                        :step="0.01"
+                        controls-position="right"
+                        placeholder="例如 0.9"
+                        class="param-input"
+                      />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </div>
+
+              <!-- MCP 模式开关 -->
+              <el-form-item label="MCP模式">
+                <el-switch v-model="enableMCP" @change="handleMcpModeChange"></el-switch>
+              </el-form-item>
+
+              <!-- MCP 配置输入框，当 MCP 模式开启时显示 -->
+              <el-form-item label="MCP配置" v-if="enableMCP">
+                <el-input
+                  type="textarea"
+                  :rows="10"
+                  v-model="mcpConfig"
+                  placeholder='例如: { &quot;provider_name&quot;: { &quot;api_key&quot;: &quot;your_api_key&quot;, &quot;model_name&quot;: &quot;your_model_name&quot; } }'
+                ></el-input>
+              </el-form-item>
+
+              <!-- 保存设置按钮 -->
+              <el-button 
+                type="primary" 
+                @click="saveSettings"
+                :loading="isSaving"
+                class="save-button"
+              >
+                <el-icon><Check /></el-icon>
+                <span>保存设置</span>
+              </el-button>
+          </el-form>
+        </el-card>
       </div>
-      
-      <!-- 分隔线 -->
-      <el-divider content-position="left">服务商配置</el-divider>
-      
-      <!-- 表单，标签位置在上方 -->
-      <el-form label-position="top">
-          <!-- API 提供商选择项 -->
-          <el-form-item label="API提供商">
-            <el-select v-model="currentProvider" placeholder="请选择API提供商" @change="handleProviderChange">
-              <el-option v-for="provider in providers" :key="provider.name" :label="provider.name" :value="provider.name"></el-option>
-            </el-select>
-          </el-form-item>
-
-          <!-- 当选择了提供商后显示配置项 -->
-          <div v-if="currentProvider">
-            <!-- API 密钥输入项 -->
-            <el-form-item label="API 密钥" required>
-              <el-input 
-                v-model="apiKey" 
-                placeholder="请输入您的 API 密钥" 
-                type="password"
-                show-password
-              />
-            </el-form-item>
-
-            <!-- 模型名称输入项 -->
-            <el-form-item label="模型名称" required>
-              <el-input 
-                v-model="modelName" 
-                placeholder="请输入调用的模型名称"
-                class="api-input"
-              />
-            </el-form-item>
-
-            <!-- Base URL 输入项，仅对自定义提供商显示 -->
-            <el-form-item label="API Base URL" v-if="isCustomProvider">
-              <el-input 
-                v-model="baseUrl" 
-                placeholder="请输入API基础URL，例如: https://api.example.com"
-                class="api-input"
-              />
-            </el-form-item>
-
-            <!-- 参数设置行 -->
-            <el-row :gutter="20">
-              <!-- Temperature 参数设置 -->
-              <el-col :span="6">
-                <el-form-item label="Temperature (0-2)">
-                  <el-input-number 
-                    v-model="temperature"
-                    :min="0"
-                    :max="2"
-                    :step="0.1"
-                    controls-position="right"
-                    placeholder="例如 0.7"
-                    class="param-input"
-                  />
-                </el-form-item>
-              </el-col>
-              <!-- Max Tokens 参数设置 -->
-              <el-col :span="6">
-                <el-form-item label="Max Tokens">
-                  <el-input-number 
-                    v-model="maxTokens"
-                    :min="1"
-                    controls-position="right"
-                    placeholder="例如 1024"
-                    class="param-input"
-                  />
-                </el-form-item>
-              </el-col>
-              <!-- Top K 参数设置 -->
-              <el-col :span="6">
-                <el-form-item label="Top K">
-                  <el-input-number 
-                    v-model="topK"
-                    :min="1"
-                    controls-position="right"
-                    placeholder="例如 40"
-                    class="param-input"
-                  />
-                </el-form-item>
-              </el-col>
-              <!-- Top P 参数设置 -->
-              <el-col :span="6">
-                <el-form-item label="Top P (0-1)">
-                  <el-input-number 
-                    v-model="topP"
-                    :min="0"
-                    :max="1"
-                    :step="0.01"
-                    controls-position="right"
-                    placeholder="例如 0.9"
-                    class="param-input"
-                  />
-                </el-form-item>
-              </el-col>
-            </el-row>
-          </div>
-
-          <!-- MCP 模式开关 -->
-          <el-form-item label="MCP模式">
-            <el-switch v-model="enableMCP" @change="handleMcpModeChange"></el-switch>
-          </el-form-item>
-
-          <!-- MCP 配置输入框，当 MCP 模式开启时显示 -->
-          <el-form-item label="MCP配置" v-if="enableMCP">
-            <el-input
-              type="textarea"
-              :rows="10"
-              v-model="mcpConfig"
-              placeholder='例如: { &quot;provider_name&quot;: { &quot;api_key&quot;: &quot;your_api_key&quot;, &quot;model_name&quot;: &quot;your_model_name&quot; } }'
-            ></el-input>
-          </el-form-item>
-
-          <!-- 保存设置按钮 -->
-          <el-button 
-            type="primary" 
-            @click="saveSettings"
-            :loading="isSaving"
-            class="save-button"
-          >
-            <el-icon><Check /></el-icon>
-            <span>保存设置</span>
-          </el-button>
-      </el-form>
-    </el-card>
+    </div>
   </div>
 </template>
 
@@ -702,6 +706,20 @@ export default {
 </script>
 
 <style scoped>
+.settings-main-container {
+  min-height: 100vh;
+  background: #f8f9fa;
+  display: flex;
+  flex-direction: row;
+}
+.settings-content {
+  flex: 1;
+  margin-left: 56px; /* 预留导航栏宽度 */
+  padding: 32px 0 32px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 /* 设置容器样式 */
 .settings-container {
   padding: 24px; /* 内边距 */
@@ -897,5 +915,41 @@ export default {
 .backup-actions {
   display: flex; /* 弹性布局 */
   gap: 10px; /* 间距 */
+}
+
+.el-button[type="primary"], .el-button--primary {
+  background-color: #409EFF;
+  border-color: #409EFF;
+  color: #fff;
+}
+.el-button[type="danger"], .el-button--danger {
+  background-color: #f56c6c;
+  border-color: #f56c6c;
+  color: #fff;
+}
+.el-button[type="info"], .el-button--info {
+  background-color: #909399;
+  border-color: #909399;
+  color: #fff;
+}
+.el-button[type="success"], .el-button--success {
+  background-color: #67c23a;
+  border-color: #67c23a;
+  color: #fff;
+}
+.el-button[type="warning"], .el-button--warning {
+  background-color: #e6a23c;
+  border-color: #e6a23c;
+  color: #fff;
+}
+.el-button {
+  border-radius: 8px;
+  margin-right: 12px;
+  margin-bottom: 8px;
+  font-weight: 500;
+  transition: background 0.2s, color 0.2s;
+}
+.el-button:last-child {
+  margin-right: 0;
 }
 </style>

@@ -2,148 +2,157 @@
   <!-- 聊天主容器 -->
   <div class="chat-main-container">
     <!-- 历史记录侧边栏 -->
-    <div class="history-sidebar" :class="{ 'collapsed': historyCollapsed }">
-      <div class="sidebar-header">
-        <h3>聊天历史</h3>
-        <el-button type="primary" size="small" @click="createNewChat">
-          <el-icon><Plus /></el-icon>
-          新对话
-        </el-button>
-        <el-button type="text" class="collapse-button" @click="historyCollapsed = !historyCollapsed">
-          <el-icon><ArrowLeft v-if="!historyCollapsed" /><ArrowRight v-else /></el-icon>
-        </el-button>
+    <transition name="history-slide">
+      <div
+        class="history-sidebar"
+        :class="{ 'collapsed': historyCollapsed, 'auto-expanded': historyAutoExpand }"
+        @mouseenter="expandHistory"
+        @mouseleave="collapseHistory"
+      >
+        <div class="sidebar-header">
+          <h3>聊天历史</h3>
+          <el-button type="primary" size="small" @click="createNewChat">
+            <el-icon><Plus /></el-icon>
+            新对话
+          </el-button>
+          <el-button type="text" class="collapse-button" @click="toggleHistorySidebar">
+            <el-icon><ArrowLeft v-if="!historyCollapsed" /><ArrowRight v-else /></el-icon>
+          </el-button>
+        </div>
+        
+        <!-- 历史记录选项卡 -->
+        <el-tabs v-if="!historyCollapsed || historyAutoExpand" v-model="activeHistoryTab" class="history-tabs">
+          <el-tab-pane label="全部" name="all">
+            <div class="history-list">
+              <div 
+                v-for="history in chatHistories" 
+                :key="history.id"
+                :class="['history-item', { 'active': currentHistoryId === history.id }]"
+                @click="switchHistory(history.id)"
+              >
+                <div class="history-title-wrapper">
+                  <el-tooltip :content="history.title" placement="top" :disabled="history.title.length < 15">
+                    <span class="history-title">{{ history.title }}</span>
+                  </el-tooltip>
+                  <span class="history-date">{{ formatDate(history.updated_at) }}</span>
+                </div>
+                <div class="history-actions">
+                  <el-button type="text" size="small" @click.stop="toggleFavorite(history.id)">
+                    <el-icon><Star v-if="history.is_favorite" style="color: #f0c400;" /><Star v-else /></el-icon>
+                  </el-button>
+                  <el-dropdown @command="(cmd) => handleHistoryAction(cmd, history.id)" trigger="click" @click.stop>
+                    <el-button type="text" size="small">
+                      <el-icon><More /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="rename">重命名</el-dropdown-item>
+                        <el-dropdown-item command="delete" style="color: #f56c6c;">删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="收藏" name="favorites">
+            <div class="history-list">
+              <div 
+                v-for="history in favoriteHistories" 
+                :key="history.id"
+                :class="['history-item', { 'active': currentHistoryId === history.id }]"
+                @click="switchHistory(history.id)"
+              >
+                <div class="history-title-wrapper">
+                  <el-tooltip :content="history.title" placement="top" :disabled="history.title.length < 15">
+                    <span class="history-title">{{ history.title }}</span>
+                  </el-tooltip>
+                  <span class="history-date">{{ formatDate(history.updated_at) }}</span>
+                </div>
+                <div class="history-actions">
+                  <el-button type="text" size="small" @click.stop="toggleFavorite(history.id)">
+                    <el-icon><Star style="color: #f0c400;" /></el-icon>
+                  </el-button>
+                  <el-dropdown @command="(cmd) => handleHistoryAction(cmd, history.id)" trigger="click" @click.stop>
+                    <el-button type="text" size="small">
+                      <el-icon><More /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="rename">重命名</el-dropdown-item>
+                        <el-dropdown-item command="delete" style="color: #f56c6c;">删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </div>
-      
-      <!-- 历史记录选项卡 -->
-      <el-tabs v-model="activeHistoryTab" class="history-tabs">
-        <el-tab-pane label="全部" name="all">
-          <div class="history-list">
-            <div 
-              v-for="history in chatHistories" 
-              :key="history.id"
-              :class="['history-item', { 'active': currentHistoryId === history.id }]"
-              @click="switchHistory(history.id)"
-            >
-              <div class="history-title-wrapper">
-                <el-tooltip :content="history.title" placement="top" :disabled="history.title.length < 15">
-                  <span class="history-title">{{ history.title }}</span>
-                </el-tooltip>
-                <span class="history-date">{{ formatDate(history.updated_at) }}</span>
-              </div>
-              <div class="history-actions">
-                <el-button type="text" size="small" @click.stop="toggleFavorite(history.id)">
-                  <el-icon><Star v-if="history.is_favorite" style="color: #f0c400;" /><Star v-else /></el-icon>
-                </el-button>
-                <el-dropdown @command="(cmd) => handleHistoryAction(cmd, history.id)" trigger="click" @click.stop>
-                  <el-button type="text" size="small">
-                    <el-icon><More /></el-icon>
-                  </el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="rename">重命名</el-dropdown-item>
-                      <el-dropdown-item command="delete" style="color: #f56c6c;">删除</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </div>
-            </div>
-          </div>
-        </el-tab-pane>
-        <el-tab-pane label="收藏" name="favorites">
-          <div class="history-list">
-            <div 
-              v-for="history in favoriteHistories" 
-              :key="history.id"
-              :class="['history-item', { 'active': currentHistoryId === history.id }]"
-              @click="switchHistory(history.id)"
-            >
-              <div class="history-title-wrapper">
-                <el-tooltip :content="history.title" placement="top" :disabled="history.title.length < 15">
-                  <span class="history-title">{{ history.title }}</span>
-                </el-tooltip>
-                <span class="history-date">{{ formatDate(history.updated_at) }}</span>
-              </div>
-              <div class="history-actions">
-                <el-button type="text" size="small" @click.stop="toggleFavorite(history.id)">
-                  <el-icon><Star style="color: #f0c400;" /></el-icon>
-                </el-button>
-                <el-dropdown @command="(cmd) => handleHistoryAction(cmd, history.id)" trigger="click" @click.stop>
-                  <el-button type="text" size="small">
-                    <el-icon><More /></el-icon>
-                  </el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="rename">重命名</el-dropdown-item>
-                      <el-dropdown-item command="delete" style="color: #f56c6c;">删除</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </div>
-            </div>
-          </div>
-        </el-tab-pane>
-      </el-tabs>
-    </div>
+    </transition>
     
-    <!-- 聊天容器 -->
-    <div class="chat-container">
-      <!-- 消息列表区域 -->
-      <div class="message-list" ref="messageList">
-        <!-- 遍历消息数组，显示每条消息 -->
-        <div 
-          v-for="(message, index) in messages" 
-          :key="index"
-          :class="['message-bubble', message.role]"
-        >
-          <!-- 消息头像 -->
-          <div class="message-avatar">
-            <el-avatar :icon="message.role === 'user' ? 'User' : 'ChatRound'" />
+    <div class="chat-content">
+      <!-- 聊天容器 -->
+      <div class="chat-container">
+        <!-- 消息列表区域 -->
+        <div class="message-list" ref="messageList">
+          <!-- 遍历消息数组，显示每条消息 -->
+          <div 
+            v-for="(message, index) in messages" 
+            :key="index"
+            :class="['message-bubble', message.role]"
+          >
+            <!-- 消息头像 -->
+            <div class="message-avatar">
+              <el-avatar :icon="message.role === 'user' ? 'User' : 'ChatRound'" />
+            </div>
+            <!-- 消息内容包装器 -->
+            <div class="message-content-wrapper">
+              <!-- 消息角色显示 -->
+              <div class="message-role">{{ message.role === 'user' ? '你' : 'AI助手' }}</div>
+              <!-- 消息实际内容 -->
+              <div class="message-content">{{ message.content }}</div>
+            </div>
           </div>
-          <!-- 消息内容包装器 -->
-          <div class="message-content-wrapper">
-            <!-- 消息角色显示 -->
-            <div class="message-role">{{ message.role === 'user' ? '你' : 'AI助手' }}</div>
-            <!-- 消息实际内容 -->
-            <div class="message-content">{{ message.content }}</div>
-          </div>
+        </div>
+        
+        <!-- 输入区域 -->
+        <div class="input-area">
+          <!-- 文本输入框 -->
+          <el-input
+            v-model="inputMessage"
+            type="textarea"
+            :rows="3"
+            placeholder="输入消息..."
+            :autosize="{ minRows: 1, maxRows: 4 }"
+            resize="none"
+            @keyup.enter.native="sendMessage"
+          />
+          <!-- 发送按钮 -->
+          <el-button 
+            type="primary" 
+            @click="sendMessage"
+            :loading="isLoading"
+            class="send-button"
+          >
+            <el-icon><Promotion /></el-icon>
+            <span>发送</span>
+          </el-button>
         </div>
       </div>
       
-      <!-- 输入区域 -->
-      <div class="input-area">
-        <!-- 文本输入框 -->
-        <el-input
-          v-model="inputMessage"
-          type="textarea"
-          :rows="3"
-          placeholder="输入消息..."
-          :autosize="{ minRows: 1, maxRows: 4 }"
-          resize="none"
-          @keyup.enter.native="sendMessage"
-        />
-        <!-- 发送按钮 -->
-        <el-button 
-          type="primary" 
-          @click="sendMessage"
-          :loading="isLoading"
-          class="send-button"
-        >
-          <el-icon><Promotion /></el-icon>
-          <span>发送</span>
-        </el-button>
-      </div>
+      <!-- 重命名对话框 -->
+      <el-dialog v-model="renameDialogVisible" title="重命名对话" width="30%">
+        <el-input v-model="newHistoryTitle" placeholder="请输入新的对话名称" />
+        <template #footer>
+          <span class="dialog-footer">
+            <el-button @click="renameDialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="confirmRename">确认</el-button>
+          </span>
+        </template>
+      </el-dialog>
     </div>
-    
-    <!-- 重命名对话框 -->
-    <el-dialog v-model="renameDialogVisible" title="重命名对话" width="30%">
-      <el-input v-model="newHistoryTitle" placeholder="请输入新的对话名称" />
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="renameDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmRename">确认</el-button>
-        </span>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -168,17 +177,24 @@ export default {
       chatHistories: [], // 所有聊天历史记录
       favoriteHistories: [], // 收藏的聊天历史记录
       currentHistoryId: null, // 当前选中的历史记录ID
-      historyCollapsed: false, // 历史记录侧边栏是否折叠
+      historyCollapsed: false,
+      historyAutoExpand: false, // 新增自动展开标志
       activeHistoryTab: 'all', // 当前选中的历史记录选项卡
       renameDialogVisible: false, // 重命名对话框是否可见
       newHistoryTitle: '', // 新的历史记录标题
-      historyToRename: null // 要重命名的历史记录ID
+      historyToRename: null, // 要重命名的历史记录ID
+      sidebarExpanded: false, // 新增，响应SidebarNav展开状态
     };
   },
   mounted() {
     // 在组件挂载后加载聊天历史记录
     // this.loadChatHistories(); // 暂时注释掉，因为后端功能未实现
     console.log('聊天页面已加载，聊天历史功能暂未实现');
+    // 监听SidebarNav展开状态
+    window.addEventListener('sidebar-nav-toggle', this.handleSidebarToggle)
+  },
+  beforeUnmount() {
+    window.removeEventListener('sidebar-nav-toggle', this.handleSidebarToggle)
   },
   methods: {
     // 格式化日期方法
@@ -408,6 +424,29 @@ export default {
         this.isLoading = false; // 无论成功或失败，都将加载状态设置为 false
         this.inputMessage = ''; // 清空输入框
       }
+    },
+    toggleHistorySidebar() {
+      // 修复缩回报错：只切换collapsed，不影响autoExpand
+      this.historyCollapsed = !this.historyCollapsed
+      this.historyAutoExpand = false
+    },
+    expandHistory() {
+      if (this.historyCollapsed) {
+        this.historyAutoExpand = true
+      }
+    },
+    collapseHistory() {
+      if (this.historyCollapsed) {
+        this.historyAutoExpand = false
+      }
+    },
+    handleSidebarToggle(e) {
+      this.sidebarExpanded = !!e.detail
+    },
+  },
+  computed: {
+    historySidebarMargin() {
+      return this.sidebarExpanded ? '160px' : '56px'
     }
   }
 };
@@ -417,24 +456,45 @@ export default {
 /* 聊天主容器样式 */
 .chat-main-container {
   display: flex;
-  height: calc(100vh - 120px);
+  height: calc(100vh - 0px);
   background: #f8f9fa;
+  flex-direction: row;
+}
+
+.chat-content {
+  flex: 1;
+  margin-left: 56px; /* 预留导航栏宽度 */
+  display: flex;
+  flex-direction: column;
 }
 
 /* 历史记录侧边栏样式 */
 .history-sidebar {
+  margin-left: 56px;
+  /* 改为动态绑定style */
   width: 280px;
   border-right: 1px solid #e6e6e6;
   background: white;
-  transition: width 0.3s ease;
+  transition: width 0.3s cubic-bezier(.4,0,.2,1), margin-left 0.3s cubic-bezier(.4,0,.2,1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
-/* 侧边栏折叠状态 */
-.history-sidebar.collapsed {
+.history-sidebar.collapsed:not(.auto-expanded) {
   width: 0;
+  min-width: 0;
+}
+
+.history-sidebar.auto-expanded {
+  width: 220px;
+  min-width: 180px;
+  box-shadow: 2px 0 8px 0 rgba(0,0,0,0.04);
+}
+
+.history-slide-enter-active, .history-slide-leave-active {
+  transition: width 0.3s cubic-bezier(.4,0,.2,1);
 }
 
 /* 侧边栏头部样式 */
@@ -473,9 +533,9 @@ export default {
 
 /* 历史记录项样式 */
 .history-item {
-  padding: 12px;
+  padding: 16px;
   border-radius: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 20px;
   cursor: pointer;
   transition: background 0.2s ease;
   display: flex;

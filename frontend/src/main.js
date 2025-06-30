@@ -7,11 +7,12 @@ import ElementPlus from 'element-plus'
 // 导入 Element Plus 的默认样式
 import 'element-plus/dist/index.css'
 // 导入 Element Plus 图标
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+import { ChatDotRound, Setting } from '@element-plus/icons-vue'
 // 导入 Vue Router 实例
 import router from './router'
 // 导入 axios 并配置
 import axios from 'axios'
+import 'animate.css'
 
 // 配置 axios 默认设置
 axios.defaults.baseURL = 'http://localhost:8000'
@@ -27,9 +28,8 @@ app.use(ElementPlus)
 app.use(router)
 
 // 全局注册 Element Plus 图标
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
+app.component('ChatDotRound', ChatDotRound)
+app.component('Setting', Setting)
 
 // 将应用挂载到 DOM 中 id 为 'app' 的元素上
 app.mount('#app')
