@@ -126,7 +126,15 @@
               <!-- 消息角色显示 -->
               <div class="message-role">{{ message.role === 'user' ? '你' : 'AI助手' }}</div>
               <!-- 消息实际内容 -->
-              <div class="message-content">{{ message.content }}</div>
+              <div class="message-content">
+                <span v-if="message.content">{{ message.content }}</span>
+                <template v-if="message.file_urls">
+                  <div v-for="(url, idx) in message.file_urls" :key="url" style="margin-top: 8px;">
+                    <img v-if="isImage(url)" :src="url" style="max-width: 200px; max-height: 200px;" />
+                    <video v-else controls :src="url" style="max-width: 320px; max-height: 200px;" />
+                  </div>
+                </template>
+              </div>
             </div>
           </div>
         </div>
@@ -166,6 +174,29 @@
             </div>
           </div>
           
+          <!-- 文件上传按钮（紧凑版） -->
+          <el-upload
+            class="upload-btn-compact"
+            action="/chat/upload"
+            :show-file-list="false"
+            :before-upload="beforeUpload"
+            :on-success="handleUploadSuccess"
+            :on-error="handleUploadError"
+            :file-list="fileList"
+            :multiple="true"
+            :accept="'.jpg,.jpeg,.png,.gif,.bmp,.mp4,.mov,.avi,.webm'"
+            :http-request="customUploadRequest"
+          >
+            <el-button size="small" icon="el-icon-upload">上传图片/视频</el-button>
+          </el-upload>
+          <!-- 已上传文件预览 -->
+          <div class="uploaded-files-compact" v-if="fileUrls.length">
+            <div v-for="(url, idx) in fileUrls" :key="url" class="uploaded-file-preview-compact">
+              <img v-if="isImage(url)" :src="url" style="max-width: 28px; max-height: 28px; margin-right: 2px;" />
+              <video v-else controls :src="url" style="max-width: 36px; max-height: 28px; margin-right: 2px;" />
+              <el-button size="mini" type="danger" @click="removeFile(idx)">移除</el-button>
+            </div>
+          </div>
           <!-- 文本输入框 -->
           <el-input
             v-model="inputMessage"
@@ -237,6 +268,8 @@ export default {
       savedConfigs: {}, // 存储配置
       currentConfigName: '', // 当前配置名称
       currentProviderName: '', // 当前配置提供者
+      fileList: [], // 上传文件列表
+      fileUrls: [], // 已上传文件URL
     };
   },
   mounted() {
@@ -430,33 +463,27 @@ export default {
     
     // 发送消息方法
     async sendMessage() {
-      if (!this.inputMessage.trim()) return; // 如果输入为空，则不发送
-      
-      this.isLoading = true; // 设置加载状态为 true
-      const userMessage = { role: 'user', content: this.inputMessage }; // 创建用户消息对象
-      this.messages.push(userMessage); // 将用户消息添加到消息列表
-      
-      // 滚动到消息列表底部
+      if (!this.inputMessage.trim() && !this.fileUrls.length) return;
+      this.isLoading = true;
+      const userMessage = { role: 'user', content: this.inputMessage };
+      this.messages.push(userMessage);
       this.$nextTick(() => {
         if (this.$refs.messageList) {
           this.$refs.messageList.scrollTop = this.$refs.messageList.scrollHeight;
         }
       });
-      
       try {
-        // 发送 POST 请求到后端 API
         const response = await axios.post('/v1/chat/completions', {
-          messages: this.messages, // 发送当前所有消息
-          model: 'default' // 使用默认模型
+          messages: this.messages,
+          model: 'default',
+          file_urls: this.fileUrls
         });
-        
-        // 将 AI 助手的回复添加到消息列表
         this.messages.push({
           role: 'assistant',
           content: response.data.choices[0].message.content
         });
-        
-        // 滚动到消息列表底部
+        this.fileList = [];
+        this.fileUrls = [];
         this.$nextTick(() => {
           if (this.$refs.messageList) {
             this.$refs.messageList.scrollTop = this.$refs.messageList.scrollHeight;
@@ -477,8 +504,8 @@ export default {
         
         this.$message.error(errorMsg); // 显示错误提示
       } finally {
-        this.isLoading = false; // 无论成功或失败，都将加载状态设置为 false
-        this.inputMessage = ''; // 清空输入框
+        this.isLoading = false;
+        this.inputMessage = '';
       }
     },
     toggleHistorySidebar() {
@@ -551,6 +578,46 @@ export default {
         this.$message.info('加载配置失败');
       }
     },
+    isImage(url) {
+      return /\.(jpg|jpeg|png|gif|bmp)$/i.test(url);
+    },
+    removeFile(idx) {
+      this.fileUrls.splice(idx, 1);
+      this.fileList.splice(idx, 1);
+    },
+    beforeUpload(file) {
+      // 限制大小 50MB
+      const isAllowed = ["image/jpeg","image/png","image/gif","image/bmp","video/mp4","video/quicktime","video/x-msvideo","video/webm"].includes(file.type);
+      if (!isAllowed) {
+        this.$message.error('仅支持图片/视频格式');
+        return false;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        this.$message.error('文件不能超过50MB');
+        return false;
+      }
+      return true;
+    },
+    async customUploadRequest({ file, onSuccess, onError }) {
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await axios.post('/chat/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+        const url = res.data.url;
+        this.fileUrls.push(url);
+        this.fileList.push(file);
+        onSuccess(res.data, file);
+      } catch (err) {
+        this.$message.error('上传失败');
+        onError(err);
+      }
+    },
+    handleUploadSuccess(response, file) {
+      // 已在 customUploadRequest 处理
+    },
+    handleUploadError(err) {
+      this.$message.error('上传失败: ' + (err?.message || '未知错误'));
+    },
   },
   computed: {
     chatContentMargin() {
@@ -607,6 +674,7 @@ export default {
   width: 280px;
   border-right: 1px solid #e6e6e6;
   background: white;
+  margin-left: 16px;
   transition: width 0.3s cubic-bezier(.4,0,.2,1), left 0.3s cubic-bezier(.4,0,.2,1);
   display: flex;
   flex-direction: column;
@@ -802,6 +870,7 @@ export default {
 .input-area {
   padding: 20px; /* 内边距 */
   border-top: 1px solid #e6e6e6; /* 上边框 */
+  margin-left: 8px;
   background: white;
   display: flex;
   flex-direction: column;
@@ -923,5 +992,55 @@ export default {
   opacity: 1;
 }
 
+/* 文件上传按钮样式 */
+.upload-btn-compact {
+  display: inline-block;
+  vertical-align: middle;
+  margin-bottom: 2px;
+}
 
+/* 已上传文件预览样式 */
+.uploaded-files-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.uploaded-file-preview-compact {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.uploaded-file-preview-compact img {
+  max-width: 28px;
+  max-height: 28px;
+}
+
+.uploaded-file-preview-compact video {
+  max-width: 36px;
+  max-height: 28px;
+}
+
+.uploaded-file-preview-compact .el-button {
+  font-size: 10px;
+  padding: 0 4px;
+  height: 18px;
+  min-width: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .drag-upload {
+    background: linear-gradient(135deg, #23272e 60%, #2a3441 100%);
+    border-color: #444c5a;
+  }
+  .drag-upload:hover, .drag-upload.is-dragover {
+    background: linear-gradient(135deg, #25314a 60%, #1e293b 100%);
+    border-color: #409EFF;
+  }
+  .drag-upload .el-upload__text {
+    color: #b3c0d1;
+  }
+}
 </style>

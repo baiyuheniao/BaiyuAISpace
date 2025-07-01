@@ -20,7 +20,7 @@
 # 导入 logging 模块，用于日志记录
 import logging
 # 从 typing 模块导入 Dict 和 Any，用于类型提示
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 # 从 api_adapter 模块导入 BaseAdapter，用于继承
 from api_adapter import BaseAdapter, OllamaAdapter, OpenAIAdapter, AnthropicAdapter, MetaAdapter, GoogleAdapter, CohereAdapter, ReplicateAdapter, AliyunAdapter, BaiduAdapter, DeepSeekAdapter, MoonshotAdapter, ZhipuAdapter, SparkAdapter, MinimaxAdapter, SenseChatAdapter, XunfeiAdapter, CustomAdapter, SiliconFlowAdapter
 import json
@@ -198,9 +198,9 @@ class MCP:
         logger.info(f"已切换到LLM服务提供商: {name}")  # 记录日志
 
     # 处理聊天请求并路由到当前提供商的方法
-    async def handle_request(self, messages: list, model: str) -> str:
+    async def handle_request(self, messages: list, model: str, file_urls: Optional[list] = None) -> str:
         """处理聊天请求并路由到当前提供商"""
-        print(f"处理聊天请求: 当前提供商={self.current_provider}, 传入模型={model}")
+        print(f"处理聊天请求: 当前提供商={self.current_provider}, 传入模型={model}, 文件数={len(file_urls) if file_urls else 0}")
         
         # 检查是否已选择 LLM 服务提供商
         if not self.current_provider:
@@ -237,9 +237,34 @@ class MCP:
 
         print(f"聊天参数: {chat_params}")
 
+        # 多模态支持列表（可根据实际扩展）
+        multimodal_providers = {
+            'openai': ['gpt-4-vision-preview', 'gpt-4o', 'gpt-4v'],
+            'zhipu': ['glm-4v', 'glm-4v-32k'],
+            'aliyun': ['qwen-vl-plus', 'qwen-vl-max'],
+            'baidu': ['ernie-vil', 'ernie-bot-multimodal'],
+            'google': ['gemini-1.5-pro', 'gemini-1.5-flash'],
+            # ...可扩展
+        }
+        provider_key = str(self.current_provider).lower()
+        model_key = str(model).lower()
+        # 检查多模态支持
+        if file_urls:
+            support = False
+            if provider_key in multimodal_providers:
+                for m in multimodal_providers[provider_key]:
+                    if m in model_key:
+                        support = True
+                        break
+            if not support:
+                logger.error(f"多模态请求被拒绝：当前模型不支持多模态，provider={provider_key}, model={model_key}, file_urls={file_urls}")
+                raise ValueError(f"当前模型({self.current_provider}/{model})暂不支持图片/视频输入，请切换支持多模态的模型。")
+
         try:
-            # 调用当前提供商的 chat_completion 方法处理请求
-            result = await provider.chat_completion(messages, actual_model, **chat_params)
+            extra_params = chat_params.copy()
+            if file_urls is not None and isinstance(file_urls, list):
+                extra_params['file_urls'] = file_urls
+            result = await provider.chat_completion(messages, actual_model, **extra_params)
             print(f"聊天请求处理成功，响应长度: {len(result)}")
             return result
         except Exception as e:

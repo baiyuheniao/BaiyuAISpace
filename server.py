@@ -17,7 +17,7 @@
 
 
 # 从 fastapi 库导入 FastAPI 和 HTTPException
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 # 从 fastapi.middleware.cors 导入 CORSMiddleware，用于处理跨域请求
 from fastapi.middleware.cors import CORSMiddleware
 # 从 pydantic 库导入 BaseModel，用于数据模型定义
@@ -33,6 +33,8 @@ from typing import Optional, List
 import datetime
 import os
 import json
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 # 创建 FastAPI 应用实例
 app = FastAPI()
@@ -57,6 +59,7 @@ class ChatRequest(BaseModel):
     messages: list  # 消息列表
     model: str = "default"  # 模型名称，默认为 "default"
     history_id: Optional[str] = None  # 聊天历史ID，可选
+    file_urls: Optional[list] = None  # 新增，图片/视频URL列表
 
 # 定义聊天历史记录的数据模型
 class HistoryRequest(BaseModel):
@@ -70,7 +73,7 @@ class HistoryTitleRequest(BaseModel):
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatRequest):
     try:
-        print(f"收到聊天请求: 消息数={len(request.messages)}, 模型={request.model}")
+        print(f"收到聊天请求: 消息数={len(request.messages)}, 模型={request.model}, 文件数={len(request.file_urls) if request.file_urls else 0}")
         
         # 检查MCP实例是否有当前提供商
         if not mcp.current_provider:
@@ -94,8 +97,9 @@ async def chat_completions(request: ChatRequest):
                 if last_user_msg:
                     chat_history.add_message(history_id, last_user_msg)
         
-        # 调用 MCP 实例处理聊天请求
-        response = await mcp.handle_request(request.messages, request.model)
+        # 调用 MCP 实例处理聊天请求，传递 file_urls
+        file_urls = request.file_urls if isinstance(request.file_urls, list) else None
+        response = await mcp.handle_request(request.messages, request.model, file_urls=file_urls)
         print(f"聊天请求处理成功，响应长度: {len(response)}")
         
         # 保存AI回复到历史
@@ -507,6 +511,38 @@ async def get_chat_configs():
     except Exception as e:
         print(f"获取聊天配置失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), 'uploads')
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
+ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.mp4', '.mov', '.avi', '.webm'}
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
+@app.post('/chat/upload')
+async def upload_file(file: UploadFile = File(...)):
+    filename = file.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {ext}")
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="文件过大，最大支持50MB")
+    save_path = os.path.join(UPLOAD_DIR, filename)
+    # 防止重名覆盖
+    base, ext = os.path.splitext(filename)
+    counter = 1
+    while os.path.exists(save_path):
+        save_path = os.path.join(UPLOAD_DIR, f"{base}_{counter}{ext}")
+        counter += 1
+    with open(save_path, 'wb') as f:
+        f.write(contents)
+    # 返回相对URL，前端可用/static/访问
+    file_url = f"/static/uploads/{os.path.basename(save_path)}"
+    return JSONResponse({"url": file_url, "filename": os.path.basename(save_path)})
+
+# 静态文件路由，供前端访问上传的文件
+app.mount("/static/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # 当作为主程序运行时
 if __name__ == "__main__":

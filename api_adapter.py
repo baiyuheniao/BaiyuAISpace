@@ -31,6 +31,8 @@ import json
 from typing import Optional, List, Union
 # 导入 asyncio 库，用于异步操作
 import asyncio
+# 导入 mimetypes 库，用于文件类型猜测
+import mimetypes
 
 # 获取一个 logger 实例，用于记录日志
 logger = logging.getLogger(__name__)
@@ -95,8 +97,8 @@ class OpenAIAdapter(BaseAdapter):
         logger.debug(f"已初始化OpenAI适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 OpenAI 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, max_tokens=None, 
-                             top_p=1.0, frequency_penalty=0, presence_penalty=0, stop=None) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, max_tokens=None, top_p=1.0, frequency_penalty=0, presence_penalty=0, stop=None, file_urls=None) -> str:
+        logger.info(f"[OpenAI] chat_completion called, model={model}, file_urls={file_urls}")
         # 验证消息列表
         if not messages or not isinstance(messages, list):
             logger.error("OpenAI请求错误: 消息列表为空或格式不正确")
@@ -125,7 +127,13 @@ class OpenAIAdapter(BaseAdapter):
                 
             if stop and (isinstance(stop, str) or isinstance(stop, list)):
                 payload["stop"] = stop
-                
+            
+            if file_urls:
+                # 假设OpenAI多模态API支持 images 字段
+                payload["images"] = file_urls
+            
+            logger.debug(f"[OpenAI] chat_completion payload: {payload}")
+            
             try:
                 logger.debug(f"向OpenAI发送请求: {model}, 消息数: {len(messages)}")
                 
@@ -142,6 +150,8 @@ class OpenAIAdapter(BaseAdapter):
                     if response.status != 200:
                         logger.error(f"OpenAI请求失败，状态码: {response.status}, 详情: {response_text}")
                         raise Exception(f"OpenAI API请求失败: {response.status} - {response_text}")
+                    
+                    logger.debug(f"[OpenAI] chat_completion response: {response_text}")
                     
                     # 解析 JSON 响应
                     try:
@@ -172,9 +182,7 @@ class OpenAIAdapter(BaseAdapter):
                 logger.error(f"OpenAI请求客户端错误: {str(e)}")
                 raise
             except Exception as e:
-                # 捕获异常并记录错误日志
-                logger.error(f"OpenAI请求失败: {str(e)}")
-                # 重新抛出异常
+                logger.error(f"[OpenAI] chat_completion error: {str(e)}")
                 raise
 
 # 定义 AnthropicAdapter 类，继承自 BaseAdapter
@@ -374,6 +382,9 @@ class MetaAdapter(BaseAdapter):
             if "stop" in kwargs and kwargs["stop"]:
                 payload["stop"] = kwargs["stop"]
                 
+            if kwargs.get('file_urls', None):
+                payload["images"] = kwargs['file_urls']
+                
             try:
                 logger.debug(f"向Meta发送请求: {model}, 消息数: {len(valid_messages)}")
                 
@@ -437,116 +448,88 @@ class GoogleAdapter(BaseAdapter):
             "assistant": "model",
             "system": "user"  # Gemini API没有专门的system角色，通常作为user消息处理
         }
+        self.headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key
+        }
+        
+        logger.debug(f"已初始化Google适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 Google 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature: float = 0.7, top_p: float = 1.0, top_k: int = 0, max_output_tokens: int = 1024, stop_sequences: Optional[List[str]] = None) -> str:
-        # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
-        async with aiohttp.ClientSession() as session:
-            # 验证消息列表非空
-            if not messages or not isinstance(messages, list):
-                logger.error("Google请求错误: 消息列表为空或格式不正确")
-                raise ValueError("消息列表为空或格式不正确")
-
-            # 将messages转换为Google Gemini API所需的contents格式
-            contents = []
-            for msg in messages:
-                # 检查消息格式是否正确
-                if not isinstance(msg, dict) or 'role' not in msg:
-                    logger.warning(f"跳过无效消息格式: {msg}")
-                    continue
-                
-                # 映射角色
-                role = self.role_mapping.get(msg.get('role', ''), "user")
-                
-                # 确保content存在且非空
-                if 'content' not in msg or not msg['content']:
-                    logger.warning(f"跳过空内容消息: {msg}")
-                    continue
-                
-                # 创建parts
-                parts = [{"text": msg['content']}]
-                contents.append({"role": role, "parts": parts})
-            
-            # 确保转换后的内容非空
-            if not contents:
-                logger.error("Google请求错误: 转换后的消息内容为空")
-                raise ValueError("转换后的消息内容为空")
-
-            # 构建请求体 payload
-            payload = {
-                "contents": contents,  # 消息列表
-                "generationConfig": {
-                    "temperature": temperature,
-                    "topP": top_p,
-                    "topK": top_k,
-                    "maxOutputTokens": max_output_tokens,
-                }
+    async def chat_completion(self, messages: list, model: str, temperature: float = 0.7, top_p: float = 1.0, top_k: int = 0, max_output_tokens: int = 1024, stop_sequences: Optional[list] = None, file_urls=None) -> str:
+        # Gemini多模态严格适配
+        contents = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            parts = []
+            # 文本内容
+            if msg.get("content"):
+                parts.append({"text": msg["content"]})
+            # 如果是用户消息且有 file_urls，则插入图片parts
+            if role == "user" and file_urls:
+                for url in file_urls:
+                    mime_type, _ = mimetypes.guess_type(url)
+                    if not mime_type:
+                        mime_type = "image/png"  # 默认
+                    parts.append({
+                        "file_data": {
+                            "mime_type": mime_type,
+                            "file_uri": url
+                        }
+                    })
+            contents.append({"role": role, "parts": parts})
+        payload = {
+            "model": model,
+            "contents": contents,
+            "generationConfig": {
+                "temperature": temperature,
+                "topP": top_p,
+                "topK": top_k,
+                "maxOutputTokens": max_output_tokens
             }
-            if stop_sequences and isinstance(stop_sequences, list):
-                payload["generationConfig"]["stopSequences"] = stop_sequences
-
+        }
+        if stop_sequences and isinstance(stop_sequences, list):
+            payload["generationConfig"]["stopSequences"] = stop_sequences
+        # ... existing code for aiohttp request ...
+        async with aiohttp.ClientSession() as session:
             try:
-                # 使用v1版本API端点代替v1beta
-                api_url = f"{self.base_url}/v1/models/{model}:generateContent?key={self.api_key}"
-                logger.debug(f"向Google API发送请求: {api_url}")
-                
-                # 发送 POST 请求到 Google 的 /v1/models/{model}:generateContent 接口
                 async with session.post(
-                    api_url,
-                    json=payload
+                    f"{self.base_url}/v1beta/models/{model}:generateContent",
+                    json=payload,
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)
                 ) as response:
                     response_text = await response.text()
-                    
                     if response.status != 200:
-                        logger.error(f"Google请求失败，状态码: {response.status}, 详情: {response_text}")
-                        raise Exception(f"Google API请求失败: {response.status} - {response_text}")
-
-                    # 解析 JSON 响应
+                        logger.error(f"Google Gemini请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"Google Gemini API请求失败: {response.status} - {response_text}")
                     try:
                         result = await response.json()
                     except Exception as e:
-                        logger.error(f"Google响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
-                        raise ValueError(f"无法解析Google API响应: {str(e)}")
-                    
-                    # 按照Gemini API的标准响应格式解析结果
+                        logger.error(f"Google Gemini响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析Google Gemini API响应: {str(e)}")
+                    # 解析返回内容
                     if 'candidates' in result and result['candidates']:
                         candidate = result['candidates'][0]
-                        
-                        # 标准Gemini响应路径: candidates[0].content.parts[0].text
                         if 'content' in candidate and 'parts' in candidate['content']:
                             parts = candidate['content']['parts']
                             if parts and 'text' in parts[0]:
                                 return parts[0]['text']
-                        
-                        # 备用路径检查
                         elif 'content' in candidate:
                             content = candidate['content']
                             if isinstance(content, str):
                                 return content
-                        
-                        # 旧版API兼容性检查
                         elif 'parts' in candidate and candidate['parts']:
-                            # 处理parts数组，提取文本内容
                             text_content = "".join([part['text'] for part in candidate['parts'] if 'text' in part])
                             if text_content:
                                 return text_content
-                    
-                    # 检查是否存在finishReason为SAFETY
-                    if 'candidates' in result and result['candidates'] and 'finishReason' in result['candidates'][0]:
-                        finish_reason = result['candidates'][0]['finishReason']
-                        if finish_reason == "SAFETY":
-                            logger.warning("Google API由于安全原因拒绝生成响应")
-                            return "很抱歉，我无法回答这个问题。"
-                    
-                    logger.warning(f"无法从Google API响应提取文本内容: {result}")
+                    logger.warning(f"无法从Google Gemini API响应提取文本内容: {result}")
                     return "无法获取有效响应"
-                    
             except aiohttp.ClientError as e:
-                logger.error(f"Google请求客户端错误: {str(e)}")
+                logger.error(f"Google Gemini请求客户端错误: {str(e)}")
                 raise
             except Exception as e:
-                # 捕获其他未知异常并记录错误日志
-                logger.error(f"Google请求发生未知错误: {str(e)}")
+                logger.error(f"Google Gemini请求发生未知错误: {str(e)}")
                 raise
 
 # 定义 CohereAdapter 类，继承自 BaseAdapter
@@ -609,7 +592,7 @@ class CohereAdapter(BaseAdapter):
             return chat_history, ""
 
     # 实现 chat_completion 抽象方法，用于与 Cohere 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, max_tokens=1024) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, max_tokens=1024, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("Cohere请求错误: 消息列表为空或格式不正确")
@@ -637,6 +620,8 @@ class CohereAdapter(BaseAdapter):
                 "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            if file_urls:
+                payload["images"] = file_urls
             
             try:
                 logger.debug(f"向Cohere发送请求: {model}, 消息数: {len(messages)}")
@@ -866,7 +851,7 @@ class AliyunAdapter(BaseAdapter):
         logger.debug(f"已初始化阿里云适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与阿里云服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.8, max_tokens=1024) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.8, max_tokens=1024, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("阿里云请求错误: 消息列表为空或格式不正确")
@@ -918,6 +903,8 @@ class AliyunAdapter(BaseAdapter):
                     "max_tokens": max_tokens
                 }
             }
+            if file_urls:
+                payload["input"]["images"] = file_urls
             
             try:
                 logger.debug(f"向阿里云通义千问发送请求: {model}, 消息数: {len(valid_messages)}")
@@ -1031,7 +1018,7 @@ class BaiduAdapter(BaseAdapter):
                 raise
 
     # 实现 chat_completion 抽象方法，用于与百度服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.8, penalty_score=1.0) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.8, penalty_score=1.0, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("百度请求错误: 消息列表为空或格式不正确")
@@ -1079,17 +1066,15 @@ class BaiduAdapter(BaseAdapter):
         
         # 构建请求体 payload
         payload: dict = {
-            "messages": valid_messages  # 消息列表
+            "model": model,  # 模型名称
+            "messages": valid_messages,  # 消息列表
+            "temperature": temperature,  # 温度参数
+            "top_p": top_p,  # Top-p参数
+            "penalty_score": penalty_score  # 惩罚分数
         }
+        if file_urls:
+            payload["images"] = file_urls
         
-        # 添加可选参数
-        if temperature is not None:
-            payload["temperature"] = temperature
-        if top_p is not None:
-            payload["top_p"] = top_p
-        if penalty_score is not None:
-            payload["penalty_score"] = penalty_score
-            
         # 构建适当的API URL，根据模型名称选择正确的端点
         if 'ernie-bot' in model or 'ERNIE-Bot' in model:
             api_url = f"{self.base_url}/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/{model}?access_token={access_token}"
@@ -1120,7 +1105,7 @@ class BaiduAdapter(BaseAdapter):
                             if error_code in [110, 111]:  # token过期或无效
                                 logger.warning("百度访问令牌已过期，尝试刷新...")
                                 self.access_token = None  # 重置token
-                                return await self.chat_completion(messages, model, temperature, top_p, penalty_score)
+                                return await self.chat_completion(messages, model, temperature, top_p, penalty_score, file_urls)
                         except:
                             pass  # 如果无法解析为JSON，继续抛出原始错误
                             
@@ -1183,7 +1168,7 @@ class DeepSeekAdapter(BaseAdapter):
         logger.debug(f"已初始化DeepSeek适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 DeepSeek 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("DeepSeek请求错误: 消息列表为空或格式不正确")
@@ -1221,6 +1206,8 @@ class DeepSeekAdapter(BaseAdapter):
                 "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            if file_urls:
+                payload["images"] = file_urls
             
             try:
                 logger.debug(f"向DeepSeek发送请求: {model}, 消息数: {len(valid_messages)}")
@@ -1296,7 +1283,7 @@ class MoonshotAdapter(BaseAdapter):
 
     # 实现 chat_completion 抽象方法，用于与 Moonshot 服务进行聊天补全
     async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=None, 
-                              frequency_penalty=0.0, presence_penalty=0.0, stop=None) -> str:
+                              frequency_penalty=0.0, presence_penalty=0.0, stop=None, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("Moonshot请求错误: 消息列表为空或格式不正确")
@@ -1351,6 +1338,9 @@ class MoonshotAdapter(BaseAdapter):
                 
             if stop and (isinstance(stop, str) or isinstance(stop, list)):
                 payload["stop"] = stop
+            
+            if file_urls:
+                payload["images"] = file_urls
             
             try:
                 logger.debug(f"向Moonshot发送请求: {model}, 消息数: {len(valid_messages)}")
@@ -1467,7 +1457,7 @@ class ZhipuAdapter(BaseAdapter):
         return token
 
     # 实现 chat_completion 抽象方法，用于与智谱服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.7, max_tokens=1024) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.7, max_tokens=1024, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("智谱请求错误: 消息列表为空或格式不正确")
@@ -1531,6 +1521,8 @@ class ZhipuAdapter(BaseAdapter):
                 "max_tokens": max_tokens,  # 最大生成token数
                 "stream": False  # 不使用流式传输
             }
+            if file_urls:
+                payload["images"] = file_urls
             
             try:
                 logger.debug(f"向智谱发送请求: {model}, 消息数: {len(valid_messages)}")
@@ -1679,7 +1671,7 @@ class SparkAdapter(BaseAdapter):
                 }
 
     # 实现 chat_completion 抽象方法，用于与 Spark 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_k=4, max_tokens=2048) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_k=4, max_tokens=2048, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("讯飞星火请求错误: 消息列表为空或格式不正确")
@@ -1751,6 +1743,8 @@ class SparkAdapter(BaseAdapter):
                     }
                 }
             }
+            if file_urls:
+                payload["payload"]["message"]["images"] = file_urls
             
             try:
                 logger.debug(f"向讯飞星火发送请求: {spark_api_model}, API版本: {api_version}, 消息数: {len(valid_messages)}")
@@ -1852,7 +1846,7 @@ class MinimaxAdapter(BaseAdapter):
         logger.debug(f"已初始化Minimax适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 Minimax 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("Minimax请求错误: 消息列表为空或格式不正确")
@@ -1890,6 +1884,8 @@ class MinimaxAdapter(BaseAdapter):
                 "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            if file_urls:
+                payload["images"] = file_urls
             
             try:
                 logger.debug(f"向Minimax发送请求: {model}, 消息数: {len(valid_messages)}")
@@ -1962,7 +1958,7 @@ class SenseChatAdapter(BaseAdapter):
         logger.debug(f"已初始化SenseChat适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 SenseChat 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("SenseChat请求错误: 消息列表为空或格式不正确")
@@ -2000,6 +1996,8 @@ class SenseChatAdapter(BaseAdapter):
                 "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            if file_urls:
+                payload["images"] = file_urls
             
             try:
                 logger.debug(f"向SenseChat发送请求: {model}, 消息数: {len(valid_messages)}")
@@ -2072,7 +2070,7 @@ class XunfeiAdapter(BaseAdapter):
         logger.debug(f"已初始化讯飞适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与讯飞服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024, file_urls=None) -> str:
         # 验证输入
         if not messages or not isinstance(messages, list):
             logger.error("讯飞请求错误: 消息列表为空或格式不正确")
@@ -2110,6 +2108,8 @@ class XunfeiAdapter(BaseAdapter):
                 "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            if file_urls:
+                payload["images"] = file_urls
             
             try:
                 logger.debug(f"向讯飞发送请求: {model}, 消息数: {len(valid_messages)}")
