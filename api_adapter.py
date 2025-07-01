@@ -29,6 +29,8 @@ import time
 import json
 # 导入 typing 库，用于类型注解
 from typing import Optional, List, Union
+# 导入 asyncio 库，用于异步操作
+import asyncio
 
 # 获取一个 logger 实例，用于记录日志
 logger = logging.getLogger(__name__)
@@ -551,36 +553,140 @@ class GoogleAdapter(BaseAdapter):
 class CohereAdapter(BaseAdapter):
     # 构造函数，初始化 Cohere API 密钥和基准 URL
     def __init__(self, api_key: str, base_url="https://api.cohere.ai"):
+        if not api_key or not isinstance(api_key, str):
+            raise ValueError("Cohere API Key不能为空且必须是字符串")
+            
         self.base_url = base_url
         # 设置请求头，包含授权信息和内容类型
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        
+        logger.debug(f"已初始化Cohere适配器，API基础URL: {base_url}")
+
+    # 将OpenAI格式的消息转换为Cohere格式
+    def _convert_messages(self, messages):
+        """将OpenAI格式的消息转换为Cohere API格式"""
+        if not messages:
+            return [], []
+            
+        chat_history = []
+        current_message = None
+        
+        for msg in messages:
+            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                logger.warning(f"跳过无效消息格式: {msg}")
+                continue
+                
+            role = msg['role']
+            content = msg['content']
+            
+            if role == 'user':
+                if current_message:
+                    # 如果已经有用户消息，将其添加到历史记录
+                    chat_history.append(current_message)
+                current_message = {"role": "user", "message": content}
+            elif role == 'assistant':
+                if current_message and current_message['role'] == 'user':
+                    # 将用户消息和助手回复作为一对添加到历史记录
+                    chat_history.append(current_message)
+                    chat_history.append({"role": "chatbot", "message": content})
+                    current_message = None
+                else:
+                    # 如果助手消息没有对应的用户消息，直接添加
+                    chat_history.append({"role": "chatbot", "message": content})
+            elif role == 'system':
+                # 系统消息作为用户消息处理
+                if current_message:
+                    chat_history.append(current_message)
+                current_message = {"role": "user", "message": content}
+        
+        # 如果还有未处理的消息，将其作为当前消息
+        if current_message:
+            return chat_history, current_message['message']
+        else:
+            return chat_history, ""
 
     # 实现 chat_completion 抽象方法，用于与 Cohere 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, max_tokens=1024) -> str:
+        # 验证输入
+        if not messages or not isinstance(messages, list):
+            logger.error("Cohere请求错误: 消息列表为空或格式不正确")
+            raise ValueError("消息列表为空或格式不正确")
+            
+        if not model or not isinstance(model, str):
+            logger.error("Cohere请求错误: 模型名称无效")
+            raise ValueError("模型名称无效")
+        
+        # 转换消息格式
+        chat_history, current_message = self._convert_messages(messages)
+        
+        if not current_message:
+            logger.error("Cohere请求错误: 当前消息为空")
+            raise ValueError("当前消息为空")
+        
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
-            # 构建请求体 payload
+            # 构建请求体 payload - 使用正确的Cohere API格式
             payload = {
                 "model": model,  # 模型名称
-                "message": messages[-1]['content'],  # 最新消息内容
-                "chat_history": messages[:-1]  # 聊天历史
+                "message": current_message,  # 当前消息
+                "chat_history": chat_history,  # 聊天历史
+                "temperature": temperature,  # 温度参数
+                "max_tokens": max_tokens,  # 最大token数
+                "stream": False  # 不使用流式传输
             }
+            
             try:
+                logger.debug(f"向Cohere发送请求: {model}, 消息数: {len(messages)}")
+                
                 # 发送 POST 请求到 Cohere 的 /v1/chat 接口
                 async with session.post(
                     f"{self.base_url}/v1/chat",
                     json=payload,
-                    headers=self.headers
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"Cohere请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"Cohere API请求失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['text']
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"Cohere响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析Cohere API响应: {str(e)}")
+                    
+                    # 检查错误信息
+                    if 'message' in result and 'error' in result:
+                        error_msg = result['message']
+                        logger.error(f"Cohere API返回错误: {error_msg}")
+                        raise Exception(f"Cohere API返回错误: {error_msg}")
+                    
+                    # 检查响应格式并提取内容
+                    if 'text' in result:
+                        return result['text']
+                    
+                    # 记录使用信息（如果存在）
+                    if 'meta' in result and 'billed_units' in result['meta']:
+                        billed_units = result['meta']['billed_units']
+                        logger.debug(f"Cohere API使用情况: 输入tokens: {billed_units.get('input_tokens', '未知')}, "
+                                   f"输出tokens: {billed_units.get('output_tokens', '未知')}")
+                        
+                    logger.error(f"无法从Cohere响应中提取文本内容: {result}")
+                    return ""
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"Cohere请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
+                # 捕获其他未知异常并记录错误日志
                 logger.error(f"Cohere请求失败: {str(e)}")
                 # 重新抛出异常
                 raise
@@ -589,37 +695,156 @@ class CohereAdapter(BaseAdapter):
 class ReplicateAdapter(BaseAdapter):
     # 构造函数，初始化 Replicate API 密钥和基准 URL
     def __init__(self, api_key: str, base_url="https://api.replicate.com"):
+        if not api_key or not isinstance(api_key, str):
+            raise ValueError("Replicate API Key不能为空且必须是字符串")
+            
         self.base_url = base_url
         # 设置请求头，包含授权信息和内容类型
         self.headers = {
             "Authorization": f"Token {api_key}",
             "Content-Type": "application/json"
         }
+        
+        logger.debug(f"已初始化Replicate适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 Replicate 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, max_tokens=1024) -> str:
+        # 验证输入
+        if not messages or not isinstance(messages, list):
+            logger.error("Replicate请求错误: 消息列表为空或格式不正确")
+            raise ValueError("消息列表为空或格式不正确")
+            
+        if not model or not isinstance(model, str):
+            logger.error("Replicate请求错误: 模型名称无效")
+            raise ValueError("模型名称无效")
+        
+        # 验证消息格式
+        valid_messages = []
+        for msg in messages:
+            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                logger.warning(f"跳过无效消息格式: {msg}")
+                continue
+                
+            # Replicate支持标准的OpenAI消息格式
+            valid_messages.append({
+                "role": msg['role'],
+                "content": msg['content']
+            })
+            
+        if not valid_messages:
+            logger.error("Replicate请求错误: 转换后的消息列表为空")
+            raise ValueError("转换后的消息列表为空")
+        
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
-            # 构建请求体 payload
+            # 构建请求体 payload - 创建预测请求
             payload = {
+                "version": model,  # 模型版本
                 "input": {
-                    "messages": messages,  # 消息列表
-                    "model": model  # 模型名称
+                    "messages": valid_messages,  # 消息列表
+                    "temperature": temperature,  # 温度参数
+                    "max_tokens": max_tokens  # 最大token数
                 }
             }
+            
             try:
-                # 发送 POST 请求到 Replicate 的 /v1/predictions 接口
+                logger.debug(f"向Replicate发送预测请求: {model}, 消息数: {len(valid_messages)}")
+                
+                # 第一步：创建预测
                 async with session.post(
                     f"{self.base_url}/v1/predictions",
                     json=payload,
-                    headers=self.headers
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 201:  # Replicate创建预测返回201
+                        logger.error(f"Replicate创建预测失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"Replicate API创建预测失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['output'][0]
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"Replicate响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析Replicate API响应: {str(e)}")
+                    
+                    # 获取预测ID
+                    if 'id' not in result:
+                        logger.error(f"Replicate响应缺少预测ID: {result}")
+                        raise ValueError("Replicate响应缺少预测ID")
+                    
+                    prediction_id = result['id']
+                    logger.debug(f"Replicate预测ID: {prediction_id}")
+                
+                # 第二步：轮询预测结果
+                max_attempts = 30  # 最大轮询次数
+                poll_interval = 2  # 轮询间隔（秒）
+                
+                for attempt in range(max_attempts):
+                    await asyncio.sleep(poll_interval)
+                    
+                    # 查询预测状态
+                    async with session.get(
+                        f"{self.base_url}/v1/predictions/{prediction_id}",
+                        headers=self.headers,
+                        timeout=aiohttp.ClientTimeout(30)
+                    ) as response:
+                        if response.status != 200:
+                            logger.error(f"Replicate查询预测状态失败，状态码: {response.status}")
+                            continue
+                        
+                        try:
+                            prediction_result = await response.json()
+                        except Exception as e:
+                            logger.error(f"Replicate预测状态JSON解析失败: {str(e)}")
+                            continue
+                        
+                        status = prediction_result.get('status')
+                        logger.debug(f"Replicate预测状态: {status}")
+                        
+                        if status == 'succeeded':
+                            # 预测成功，提取结果
+                            output = prediction_result.get('output')
+                            if output:
+                                if isinstance(output, list) and len(output) > 0:
+                                    return output[0]  # 返回第一个输出
+                                elif isinstance(output, str):
+                                    return output
+                                else:
+                                    logger.error(f"Replicate输出格式异常: {output}")
+                                    return str(output)
+                            else:
+                                logger.error(f"Replicate预测成功但输出为空: {prediction_result}")
+                                return ""
+                        
+                        elif status == 'failed':
+                            # 预测失败
+                            error = prediction_result.get('error', '未知错误')
+                            logger.error(f"Replicate预测失败: {error}")
+                            raise Exception(f"Replicate预测失败: {error}")
+                        
+                        elif status in ['starting', 'processing']:
+                            # 继续等待
+                            continue
+                        
+                        else:
+                            # 未知状态
+                            logger.warning(f"Replicate预测未知状态: {status}")
+                            continue
+                
+                # 超时
+                logger.error(f"Replicate预测超时，预测ID: {prediction_id}")
+                raise Exception("Replicate预测超时")
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"Replicate请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
+                # 捕获其他未知异常并记录错误日志
                 logger.error(f"Replicate请求失败: {str(e)}")
                 # 重新抛出异常
                 raise
@@ -628,41 +853,123 @@ class ReplicateAdapter(BaseAdapter):
 class AliyunAdapter(BaseAdapter):
     # 构造函数，初始化阿里云 API 密钥和基准 URL
     def __init__(self, api_key: str, base_url="https://dashscope.aliyuncs.com"):
+        if not api_key or not isinstance(api_key, str):
+            raise ValueError("阿里云 API Key不能为空且必须是字符串")
+            
         self.base_url = base_url
         # 设置请求头，包含授权信息和内容类型
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        
+        logger.debug(f"已初始化阿里云适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与阿里云服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.8, max_tokens=1024) -> str:
+        # 验证输入
+        if not messages or not isinstance(messages, list):
+            logger.error("阿里云请求错误: 消息列表为空或格式不正确")
+            raise ValueError("消息列表为空或格式不正确")
+            
+        if not model or not isinstance(model, str):
+            logger.error("阿里云请求错误: 模型名称无效")
+            raise ValueError("模型名称无效")
+        
+        # 验证消息格式
+        valid_messages = []
+        for msg in messages:
+            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                logger.warning(f"跳过无效消息格式: {msg}")
+                continue
+                
+            # 角色映射（阿里云通义千问支持的角色是user/assistant）
+            role = msg['role']
+            if role not in ['user', 'assistant']:
+                if role == 'system':
+                    # 将system消息作为user消息处理
+                    role = 'user'
+                    logger.warning("阿里云通义千问API不直接支持system角色，已转换为user角色")
+                else:
+                    logger.warning(f"将未知角色 '{role}' 转换为 'user'")
+                    role = 'user'
+                    
+            valid_messages.append({
+                "role": role,
+                "content": msg['content']
+            })
+            
+        if not valid_messages:
+            logger.error("阿里云请求错误: 转换后的消息列表为空")
+            raise ValueError("转换后的消息列表为空")
+        
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
-            # 构建请求体 payload
+            # 构建请求体 payload - 使用正确的阿里云通义千问API格式
             payload = {
                 "model": model,  # 模型名称
                 "input": {
-                    "messages": messages  # 消息列表
+                    "messages": valid_messages  # 消息列表
                 },
                 "parameters": {
-                    "result_format": "message"
+                    "result_format": "message",
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "max_tokens": max_tokens
                 }
             }
+            
             try:
-                # 发送 POST 请求到阿里云的 /api/v1/services/aigc/chat/completion 接口
+                logger.debug(f"向阿里云通义千问发送请求: {model}, 消息数: {len(valid_messages)}")
+                
+                # 发送 POST 请求到阿里云通义千问的正确API端点
                 async with session.post(
-                    f"{self.base_url}/api/v1/services/aigc/chat/completion",
+                    f"{self.base_url}/api/v1/services/aigc/text-generation/generation",
                     json=payload,
-                    headers=self.headers
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"阿里云请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"阿里云API请求失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['output']['choices'][0]['message']['content']
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"阿里云响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析阿里云API响应: {str(e)}")
+                    
+                    # 检查错误信息
+                    if 'code' in result and result['code'] != 0:
+                        error_msg = result.get('message', '未知错误')
+                        logger.error(f"阿里云API返回错误: {result['code']} - {error_msg}")
+                        raise Exception(f"阿里云API返回错误: {result['code']} - {error_msg}")
+                    
+                    # 检查响应格式并提取内容
+                    if 'output' in result and 'choices' in result['output'] and result['output']['choices']:
+                        choice = result['output']['choices'][0]
+                        if 'message' in choice and 'content' in choice['message']:
+                            return choice['message']['content']
+                    
+                    # 记录使用信息（如果存在）
+                    if 'usage' in result:
+                        logger.debug(f"阿里云API使用情况: 输入tokens: {result['usage'].get('input_tokens', '未知')}, "
+                                   f"输出tokens: {result['usage'].get('output_tokens', '未知')}")
+                        
+                    logger.error(f"无法从阿里云响应中提取文本内容: {result}")
+                    return ""
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"阿里云请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
-                logger.error(f"Aliyun请求失败: {str(e)}")
+                # 捕获其他未知异常并记录错误日志
+                logger.error(f"阿里云请求失败: {str(e)}")
                 # 重新抛出异常
                 raise
 
@@ -863,36 +1170,108 @@ class BaiduAdapter(BaseAdapter):
 class DeepSeekAdapter(BaseAdapter):
     # 构造函数，初始化 DeepSeek API 密钥和基准 URL
     def __init__(self, api_key: str, base_url="https://api.deepseek.com"):
+        if not api_key or not isinstance(api_key, str):
+            raise ValueError("DeepSeek API Key不能为空且必须是字符串")
+            
         self.base_url = base_url
         # 设置请求头，包含授权信息和内容类型
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        
+        logger.debug(f"已初始化DeepSeek适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 DeepSeek 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024) -> str:
+        # 验证输入
+        if not messages or not isinstance(messages, list):
+            logger.error("DeepSeek请求错误: 消息列表为空或格式不正确")
+            raise ValueError("消息列表为空或格式不正确")
+            
+        if not model or not isinstance(model, str):
+            logger.error("DeepSeek请求错误: 模型名称无效")
+            raise ValueError("模型名称无效")
+        
+        # 验证消息格式
+        valid_messages = []
+        for msg in messages:
+            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                logger.warning(f"跳过无效消息格式: {msg}")
+                continue
+                
+            # DeepSeek支持标准的OpenAI消息格式
+            valid_messages.append({
+                "role": msg['role'],
+                "content": msg['content']
+            })
+            
+        if not valid_messages:
+            logger.error("DeepSeek请求错误: 转换后的消息列表为空")
+            raise ValueError("转换后的消息列表为空")
+        
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 构建请求体 payload
             payload = {
                 "model": model,  # 模型名称
-                "messages": messages,  # 消息列表
+                "messages": valid_messages,  # 消息列表
+                "temperature": temperature,  # 温度参数
+                "top_p": top_p,  # Top-p参数
+                "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            
             try:
+                logger.debug(f"向DeepSeek发送请求: {model}, 消息数: {len(valid_messages)}")
+                
                 # 发送 POST 请求到 DeepSeek 的 /chat/completions 接口
                 async with session.post(
                     f"{self.base_url}/chat/completions",
                     json=payload,
-                    headers=self.headers
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"DeepSeek请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"DeepSeek API请求失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['choices'][0]['message']['content']
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"DeepSeek响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析DeepSeek API响应: {str(e)}")
+                    
+                    # 检查错误信息
+                    if 'error' in result:
+                        error_msg = result['error'].get('message', '未知错误')
+                        logger.error(f"DeepSeek API返回错误: {error_msg}")
+                        raise Exception(f"DeepSeek API返回错误: {error_msg}")
+                    
+                    # 检查响应格式并提取内容
+                    if 'choices' in result and result['choices']:
+                        choice = result['choices'][0]
+                        if 'message' in choice and 'content' in choice['message']:
+                            return choice['message']['content']
+                    
+                    # 记录使用信息（如果存在）
+                    if 'usage' in result:
+                        logger.debug(f"DeepSeek API使用情况: 输入tokens: {result['usage'].get('prompt_tokens', '未知')}, "
+                                   f"输出tokens: {result['usage'].get('completion_tokens', '未知')}")
+                        
+                    logger.error(f"无法从DeepSeek响应中提取文本内容: {result}")
+                    return ""
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"DeepSeek请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
+                # 捕获其他未知异常并记录错误日志
                 logger.error(f"DeepSeek请求失败: {str(e)}")
                 # 重新抛出异常
                 raise
@@ -1062,30 +1441,30 @@ class ZhipuAdapter(BaseAdapter):
         except ImportError:
             logger.warning("PyJWT库未安装，将使用备用认证方式")
             return self.api_key
-                
-            import time
-            import uuid
-            
-            # 当前时间戳（秒）
-            iat = int(time.time())
-            # 过期时间戳
-            exp = iat + expiration_seconds
-            # 负载数据
-            payload = {
-                "api_key": self.api_id,
-                "exp": exp,
-                "timestamp": iat,
-                "uuid": str(uuid.uuid4())  # 随机UUID，防止重放攻击
-            }
-            
-            # 使用HS256算法和API密钥的secret部分签名
-            token = jwt.encode(
-                payload,
-                self.api_secret,
-                algorithm="HS256"
-            )
-            
-            return token
+        
+        import time
+        import uuid
+        
+        # 当前时间戳（秒）
+        iat = int(time.time())
+        # 过期时间戳
+        exp = iat + expiration_seconds
+        # 负载数据
+        payload = {
+            "api_key": self.api_id,
+            "exp": exp,
+            "timestamp": iat,
+            "uuid": str(uuid.uuid4())  # 随机UUID，防止重放攻击
+        }
+        
+        # 使用HS256算法和API密钥的secret部分签名
+        token = jwt.encode(
+            payload,
+            self.api_secret,
+            algorithm="HS256"
+        )
+        
+        return token
 
     # 实现 chat_completion 抽象方法，用于与智谱服务进行聊天补全
     async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.7, max_tokens=1024) -> str:
@@ -1460,36 +1839,108 @@ class SparkAdapter(BaseAdapter):
 class MinimaxAdapter(BaseAdapter):
     # 构造函数，初始化 Minimax API 密钥和基准 URL
     def __init__(self, api_key: str, base_url="https://api.minimax.chat"):
+        if not api_key or not isinstance(api_key, str):
+            raise ValueError("Minimax API Key不能为空且必须是字符串")
+            
         self.base_url = base_url
         # 设置请求头，包含授权信息和内容类型
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        
+        logger.debug(f"已初始化Minimax适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 Minimax 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024) -> str:
+        # 验证输入
+        if not messages or not isinstance(messages, list):
+            logger.error("Minimax请求错误: 消息列表为空或格式不正确")
+            raise ValueError("消息列表为空或格式不正确")
+            
+        if not model or not isinstance(model, str):
+            logger.error("Minimax请求错误: 模型名称无效")
+            raise ValueError("模型名称无效")
+        
+        # 验证消息格式
+        valid_messages = []
+        for msg in messages:
+            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                logger.warning(f"跳过无效消息格式: {msg}")
+                continue
+                
+            # Minimax支持标准的OpenAI消息格式
+            valid_messages.append({
+                "role": msg['role'],
+                "content": msg['content']
+            })
+            
+        if not valid_messages:
+            logger.error("Minimax请求错误: 转换后的消息列表为空")
+            raise ValueError("转换后的消息列表为空")
+        
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 构建请求体 payload
             payload = {
                 "model": model,  # 模型名称
-                "messages": messages,  # 消息列表
+                "messages": valid_messages,  # 消息列表
+                "temperature": temperature,  # 温度参数
+                "top_p": top_p,  # Top-p参数
+                "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            
             try:
+                logger.debug(f"向Minimax发送请求: {model}, 消息数: {len(valid_messages)}")
+                
                 # 发送 POST 请求到 Minimax 的 /v1/chat/completions 接口
                 async with session.post(
                     f"{self.base_url}/v1/chat/completions",
                     json=payload,
-                    headers=self.headers
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"Minimax请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"Minimax API请求失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['choices'][0]['message']['content']
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"Minimax响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析Minimax API响应: {str(e)}")
+                    
+                    # 检查错误信息
+                    if 'error' in result:
+                        error_msg = result['error'].get('message', '未知错误')
+                        logger.error(f"Minimax API返回错误: {error_msg}")
+                        raise Exception(f"Minimax API返回错误: {error_msg}")
+                    
+                    # 检查响应格式并提取内容
+                    if 'choices' in result and result['choices']:
+                        choice = result['choices'][0]
+                        if 'message' in choice and 'content' in choice['message']:
+                            return choice['message']['content']
+                    
+                    # 记录使用信息（如果存在）
+                    if 'usage' in result:
+                        logger.debug(f"Minimax API使用情况: 输入tokens: {result['usage'].get('prompt_tokens', '未知')}, "
+                                   f"输出tokens: {result['usage'].get('completion_tokens', '未知')}")
+                        
+                    logger.error(f"无法从Minimax响应中提取文本内容: {result}")
+                    return ""
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"Minimax请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
+                # 捕获其他未知异常并记录错误日志
                 logger.error(f"Minimax请求失败: {str(e)}")
                 # 重新抛出异常
                 raise
@@ -1498,36 +1949,108 @@ class MinimaxAdapter(BaseAdapter):
 class SenseChatAdapter(BaseAdapter):
     # 构造函数，初始化 SenseChat API 密钥和基准 URL
     def __init__(self, api_key: str, base_url="https://api.sensetime.com"):
+        if not api_key or not isinstance(api_key, str):
+            raise ValueError("SenseChat API Key不能为空且必须是字符串")
+            
         self.base_url = base_url
         # 设置请求头，包含授权信息和内容类型
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        
+        logger.debug(f"已初始化SenseChat适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与 SenseChat 服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024) -> str:
+        # 验证输入
+        if not messages or not isinstance(messages, list):
+            logger.error("SenseChat请求错误: 消息列表为空或格式不正确")
+            raise ValueError("消息列表为空或格式不正确")
+            
+        if not model or not isinstance(model, str):
+            logger.error("SenseChat请求错误: 模型名称无效")
+            raise ValueError("模型名称无效")
+        
+        # 验证消息格式
+        valid_messages = []
+        for msg in messages:
+            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                logger.warning(f"跳过无效消息格式: {msg}")
+                continue
+                
+            # SenseChat支持标准的OpenAI消息格式
+            valid_messages.append({
+                "role": msg['role'],
+                "content": msg['content']
+            })
+            
+        if not valid_messages:
+            logger.error("SenseChat请求错误: 转换后的消息列表为空")
+            raise ValueError("转换后的消息列表为空")
+        
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 构建请求体 payload
             payload = {
                 "model": model,  # 模型名称
-                "messages": messages,  # 消息列表
+                "messages": valid_messages,  # 消息列表
+                "temperature": temperature,  # 温度参数
+                "top_p": top_p,  # Top-p参数
+                "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            
             try:
+                logger.debug(f"向SenseChat发送请求: {model}, 消息数: {len(valid_messages)}")
+                
                 # 发送 POST 请求到 SenseChat 的 /v1/chat/completions 接口
                 async with session.post(
                     f"{self.base_url}/v1/chat/completions",
                     json=payload,
-                    headers=self.headers
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"SenseChat请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"SenseChat API请求失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['choices'][0]['message']['content']
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"SenseChat响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析SenseChat API响应: {str(e)}")
+                    
+                    # 检查错误信息
+                    if 'error' in result:
+                        error_msg = result['error'].get('message', '未知错误')
+                        logger.error(f"SenseChat API返回错误: {error_msg}")
+                        raise Exception(f"SenseChat API返回错误: {error_msg}")
+                    
+                    # 检查响应格式并提取内容
+                    if 'choices' in result and result['choices']:
+                        choice = result['choices'][0]
+                        if 'message' in choice and 'content' in choice['message']:
+                            return choice['message']['content']
+                    
+                    # 记录使用信息（如果存在）
+                    if 'usage' in result:
+                        logger.debug(f"SenseChat API使用情况: 输入tokens: {result['usage'].get('prompt_tokens', '未知')}, "
+                                   f"输出tokens: {result['usage'].get('completion_tokens', '未知')}")
+                        
+                    logger.error(f"无法从SenseChat响应中提取文本内容: {result}")
+                    return ""
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"SenseChat请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
+                # 捕获其他未知异常并记录错误日志
                 logger.error(f"SenseChat请求失败: {str(e)}")
                 # 重新抛出异常
                 raise
@@ -1536,37 +2059,109 @@ class SenseChatAdapter(BaseAdapter):
 class XunfeiAdapter(BaseAdapter):
     # 构造函数，初始化讯飞 API 密钥和基准 URL
     def __init__(self, api_key: str, base_url="https://api.xf-yun.com"):
+        if not api_key or not isinstance(api_key, str):
+            raise ValueError("讯飞 API Key不能为空且必须是字符串")
+            
         self.base_url = base_url
         # 设置请求头，包含授权信息和内容类型
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        
+        logger.debug(f"已初始化讯飞适配器，API基础URL: {base_url}")
 
     # 实现 chat_completion 抽象方法，用于与讯飞服务进行聊天补全
-    async def chat_completion(self, messages: list, model: str) -> str:
+    async def chat_completion(self, messages: list, model: str, temperature=0.7, top_p=0.9, max_tokens=1024) -> str:
+        # 验证输入
+        if not messages or not isinstance(messages, list):
+            logger.error("讯飞请求错误: 消息列表为空或格式不正确")
+            raise ValueError("消息列表为空或格式不正确")
+            
+        if not model or not isinstance(model, str):
+            logger.error("讯飞请求错误: 模型名称无效")
+            raise ValueError("模型名称无效")
+        
+        # 验证消息格式
+        valid_messages = []
+        for msg in messages:
+            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                logger.warning(f"跳过无效消息格式: {msg}")
+                continue
+                
+            # 讯飞支持标准的OpenAI消息格式
+            valid_messages.append({
+                "role": msg['role'],
+                "content": msg['content']
+            })
+            
+        if not valid_messages:
+            logger.error("讯飞请求错误: 转换后的消息列表为空")
+            raise ValueError("转换后的消息列表为空")
+        
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 构建请求体 payload
             payload = {
                 "model": model,  # 模型名称
-                "messages": messages,  # 消息列表
+                "messages": valid_messages,  # 消息列表
+                "temperature": temperature,  # 温度参数
+                "top_p": top_p,  # Top-p参数
+                "max_tokens": max_tokens,  # 最大token数
                 "stream": False  # 不使用流式传输
             }
+            
             try:
+                logger.debug(f"向讯飞发送请求: {model}, 消息数: {len(valid_messages)}")
+                
                 # 发送 POST 请求到讯飞的 /v1/chat/completions 接口
                 async with session.post(
                     f"{self.base_url}/v1/chat/completions",
                     json=payload,
-                    headers=self.headers
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"讯飞请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"讯飞API请求失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['choices'][0]['message']['content']
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"讯飞响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析讯飞API响应: {str(e)}")
+                    
+                    # 检查错误信息
+                    if 'error' in result:
+                        error_msg = result['error'].get('message', '未知错误')
+                        logger.error(f"讯飞API返回错误: {error_msg}")
+                        raise Exception(f"讯飞API返回错误: {error_msg}")
+                    
+                    # 检查响应格式并提取内容
+                    if 'choices' in result and result['choices']:
+                        choice = result['choices'][0]
+                        if 'message' in choice and 'content' in choice['message']:
+                            return choice['message']['content']
+                    
+                    # 记录使用信息（如果存在）
+                    if 'usage' in result:
+                        logger.debug(f"讯飞API使用情况: 输入tokens: {result['usage'].get('prompt_tokens', '未知')}, "
+                                   f"输出tokens: {result['usage'].get('completion_tokens', '未知')}")
+                        
+                    logger.error(f"无法从讯飞响应中提取文本内容: {result}")
+                    return ""
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"讯飞请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
-                logger.error(f"Xunfei请求失败: {str(e)}")
+                # 捕获其他未知异常并记录错误日志
+                logger.error(f"讯飞请求失败: {str(e)}")
                 # 重新抛出异常
                 raise
 
