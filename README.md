@@ -52,8 +52,31 @@ BaiyuAISpace/
 │   │       └── SettingsView.vue  # 设置界面
 │   ├── package.json       # 前端依赖
 │   └── pnpm-lock.yaml     # 依赖锁定文件
+├── docs/                  # 文档和测试文件目录
+│   ├── README.md          # 文档目录说明
+│   ├── API_COMPLIANCE_REPORT.md  # API合规性检查报告
+│   ├── LAYOUT_FIXES.md    # 布局修复说明
+│   ├── tests/             # 测试文件目录
+│   │   ├── api_tests/     # API测试文件
+│   │   ├── layout_tests/  # 布局测试文件
+│   │   └── integration_tests/ # 集成测试文件
+│   └── reports/           # 修复报告目录
+│       ├── bug_fixes/     # Bug修复报告
+│       ├── feature_updates/ # 功能更新报告
+│       └── performance_improvements/ # 性能优化报告
 └── README.md              # 项目说明文档
 ```
+
+## 📚 文档说明
+
+项目包含完整的文档和测试文件，位于 `docs/` 目录中：
+
+- **API合规性检查报告**: 详细检查了所有API服务商适配器的合规性
+- **布局修复说明**: 记录了聊天界面布局问题的修复过程
+- **测试文件**: 包含API测试、布局测试和集成测试
+- **修复报告**: 记录Bug修复、功能更新和性能优化的详细过程
+
+更多详细信息请查看 [docs/README.md](./docs/README.md)。
 
 ## 🚀 快速开始
 
@@ -207,11 +230,12 @@ pnpm run serve
 ✅ 标准化API接口  
 ✅ 服务商配置集中管理
 ✅ 支持MCP功能
-历史聊天记录管理
-消息撤回/更改
-多API配置保存
-多智能体配置保存
-MCP调用安全机制
+✅ 历史聊天记录管理
+✅ 多API配置保存
+/多智能体配置保存
+/MCP调用安全机制
+/原生自带文件调用、联网搜索
+/多种文件支持（图片、视频，如果调用的模型支持）
 
 ## 技术栈 | Tech Stack
 **前端**  

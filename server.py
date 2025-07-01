@@ -463,6 +463,51 @@ async def get_debug_info():
         print(f"获取调试信息失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取调试信息失败: {str(e)}")
 
+# 定义配置编辑的请求体模型
+class EditConfigRequest(BaseModel):
+    provider_name: str  # 提供商名称
+    config: dict  # 配置字典
+
+# 定义配置编辑的 PUT 接口
+@app.put("/config/{provider_name}")
+async def edit_config(provider_name: str, request: EditConfigRequest):
+    try:
+        print(f"编辑配置: 提供商={provider_name}, 配置={request.config}")
+        
+        # 验证提供商名称是否匹配
+        if provider_name != request.provider_name:
+            raise HTTPException(status_code=400, detail="提供商名称不匹配")
+        
+        # 保存更新后的配置
+        mcp.save_configuration(provider_name, request.config)
+        print(f"配置更新成功: {provider_name}")
+        
+        return {"status": "success", "message": f"配置 {provider_name} 更新成功"}
+    except HTTPException:
+        # 重新抛出HTTP异常
+        raise
+    except Exception as e:
+        print(f"编辑配置失败: {str(e)}")
+        # 捕获异常并返回详细的错误信息
+        raise HTTPException(status_code=500, detail=f"编辑配置失败: {str(e)}")
+
+# 定义获取聊天页面配置的 GET 接口
+@app.get("/chat/configs")
+async def get_chat_configs():
+    try:
+        # 获取所有已保存的配置
+        configurations = mcp.get_all_configurations()
+        current_provider = mcp.current_provider
+        
+        return {
+            "status": "success",
+            "configs": configurations,
+            "current_provider": current_provider
+        }
+    except Exception as e:
+        print(f"获取聊天配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
 # 当作为主程序运行时
 if __name__ == "__main__":
     import uvicorn

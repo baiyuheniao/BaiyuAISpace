@@ -35,11 +35,16 @@
                 <div class="config-details">
                   <span class="model-name">模型: {{ config.model || '未设置' }}</span>
                   <span class="api-key">API密钥: {{ maskApiKey(config.api_key) }}</span>
+                  <span v-if="config.temperature !== undefined" class="param-info">温度: {{ config.temperature }}</span>
+                  <span v-if="config.max_tokens !== undefined" class="param-info">最大Token: {{ config.max_tokens }}</span>
                 </div>
               </div>
               <div class="config-actions">
                 <el-button type="primary" size="small" @click="loadConfig(providerName, config)">
                   加载
+                </el-button>
+                <el-button type="warning" size="small" @click="editConfig(providerName, config)">
+                  编辑
                 </el-button>
                 <el-button type="danger" size="small" @click="deleteConfig(providerName)">
                   删除
@@ -244,6 +249,104 @@
         </el-card>
       </div>
     </div>
+    
+    <!-- 配置编辑对话框 -->
+    <el-dialog 
+      v-model="editDialogVisible" 
+      title="编辑配置" 
+      width="60%"
+      :before-close="handleEditDialogClose"
+    >
+      <el-form label-position="top" :model="editForm" ref="editFormRef">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="API密钥" required>
+              <el-input 
+                v-model="editForm.api_key" 
+                placeholder="请输入API密钥" 
+                type="password"
+                show-password
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="模型名称" required>
+              <el-input 
+                v-model="editForm.model" 
+                placeholder="请输入模型名称"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20" v-if="editForm.base_url">
+          <el-col :span="24">
+            <el-form-item label="API Base URL">
+              <el-input 
+                v-model="editForm.base_url" 
+                placeholder="请输入API基础URL"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20">
+          <el-col :span="6">
+            <el-form-item label="Temperature (0-2)">
+              <el-input-number 
+                v-model="editForm.temperature"
+                :min="0"
+                :max="2"
+                :step="0.1"
+                controls-position="right"
+                placeholder="例如 0.7"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="Max Tokens">
+              <el-input-number 
+                v-model="editForm.max_tokens"
+                :min="1"
+                controls-position="right"
+                placeholder="例如 1024"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="Top K">
+              <el-input-number 
+                v-model="editForm.top_k"
+                :min="1"
+                controls-position="right"
+                placeholder="例如 40"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="Top P (0-1)">
+              <el-input-number 
+                v-model="editForm.top_p"
+                :min="0"
+                :max="1"
+                :step="0.01"
+                controls-position="right"
+                placeholder="例如 0.9"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+      
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="saveEditedConfig" :loading="isSavingEdit">
+            保存修改
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -297,6 +400,10 @@ export default {
       currentConfigPath: '', // 当前配置文件路径
       isBackingUp: false, // 备份按钮加载状态
       isRestoring: false, // 恢复按钮加载状态
+      editDialogVisible: false, // 编辑对话框可见性
+      editForm: {}, // 编辑表单数据
+      editingProviderName: '', // 正在编辑的提供商名称
+      isSavingEdit: false, // 编辑保存按钮加载状态
     };
   },
   computed: {
@@ -694,6 +801,68 @@ export default {
         this.$message.error('获取调试信息失败');
       }
     },
+    
+    // 编辑配置
+    editConfig(providerName, config) {
+      this.editForm = { ...config };
+      this.editingProviderName = providerName;
+      this.editDialogVisible = true;
+    },
+    
+    // 处理编辑对话框关闭
+    handleEditDialogClose() {
+      this.editDialogVisible = false;
+    },
+    
+    // 保存编辑后的配置
+    async saveEditedConfig() {
+      // 验证输入
+      if (!this.editForm.api_key?.trim()) {
+        this.$message.error('请输入API密钥');
+        return;
+      }
+      if (!this.editForm.model?.trim()) {
+        this.$message.error('请输入模型名称');
+        return;
+      }
+      
+      this.isSavingEdit = true;
+      try {
+        // 准备配置数据
+        const config = {
+          api_key: this.editForm.api_key,
+          model: this.editForm.model,
+          ...(this.editForm.temperature !== null && this.editForm.temperature !== undefined && { temperature: this.editForm.temperature }),
+          ...(this.editForm.top_k !== null && this.editForm.top_k !== undefined && { top_k: this.editForm.top_k }),
+          ...(this.editForm.max_tokens !== null && this.editForm.max_tokens !== undefined && { max_tokens: this.editForm.max_tokens }),
+          ...(this.editForm.top_p !== null && this.editForm.top_p !== undefined && { top_p: this.editForm.top_p }),
+        };
+        
+        // 如果有base_url，添加到配置中
+        if (this.editForm.base_url?.trim()) {
+          config.base_url = this.editForm.base_url.trim();
+        }
+        
+        // 发送更新请求
+        await axios.put(`/config/${encodeURIComponent(this.editingProviderName)}`, {
+          provider_name: this.editingProviderName,
+          config: config
+        });
+        
+        this.$message.success('配置修改成功！');
+        this.editDialogVisible = false;
+        await this.loadSavedConfigs(); // 重新加载配置列表
+      } catch (error) {
+        console.error('保存配置失败:', error);
+        let errorMsg = '保存配置失败，请检查输入或稍后再试';
+        if (error.response?.data?.detail) {
+          errorMsg = error.response.data.detail;
+        }
+        this.$message.error(errorMsg);
+      } finally {
+        this.isSavingEdit = false;
+      }
+    },
   },
   
   async created() { // 组件创建后生命周期钩子
@@ -706,250 +875,212 @@ export default {
 </script>
 
 <style scoped>
+/* 设置页面样式 */
 .settings-main-container {
   min-height: 100vh;
-  background: #f8f9fa;
-  display: flex;
-  flex-direction: row;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
 }
+
 .settings-content {
-  flex: 1;
-  margin-left: 56px; /* 预留导航栏宽度 */
-  padding: 32px 0 32px 0;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.settings-container {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.settings-header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.settings-title {
+  font-size: 2.5rem;
+  color: #2c3e50;
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+.settings-description {
+  font-size: 1.1rem;
+  color: #7f8c8d;
+  margin: 0;
+}
+
+.settings-card {
+  margin-bottom: 30px;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.saved-configs-card {
+  margin-bottom: 30px;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.saved-configs-list {
   display: flex;
   flex-direction: column;
-  align-items: center;
-}
-/* 设置容器样式 */
-.settings-container {
-  padding: 24px; /* 内边距 */
-  max-width: 800px; /* 最大宽度 */
-  margin: 0 auto; /* 水平居中 */
+  gap: 15px;
 }
 
-/* 设置头部样式 */
-.settings-header {
-  margin-bottom: 24px; /* 下外边距 */
-}
-
-/* 设置标题样式 */
-.settings-title {
-  font-size: 1.5rem; /* 字体大小 */
-  font-weight: 600; /* 字体粗细 */
-  margin-bottom: 8px; /* 下外边距 */
-  color: var(--el-text-color-primary); /* 文本颜色 */
-}
-
-/* 设置描述样式 */
-.settings-description {
-  color: var(--el-text-color-secondary); /* 文本颜色 */
-  margin: 0; /* 外边距 */
-}
-
-/* 已保存配置卡片样式 */
-.saved-configs-card {
-  margin-bottom: 24px; /* 下外边距 */
-  border-radius: 12px; /* 圆角 */
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* 阴影效果 */
-}
-
-/* 卡片头部样式 */
-.card-header {
-  display: flex; /* 弹性布局 */
-  justify-content: space-between; /* 两端对齐 */
-  align-items: center; /* 垂直居中 */
-}
-
-/* 已保存配置列表样式 */
-.saved-configs-list {
-  display: flex; /* 弹性布局 */
-  flex-direction: column; /* 垂直排列 */
-  gap: 12px; /* 间距 */
-}
-
-/* 已保存配置项样式 */
 .saved-config-item {
-  display: flex; /* 弹性布局 */
-  justify-content: space-between; /* 两端对齐 */
-  align-items: center; /* 垂直居中 */
-  padding: 12px; /* 内边距 */
-  border: 1px solid var(--el-border-color-light); /* 边框 */
-  border-radius: 8px; /* 圆角 */
-  background-color: var(--el-bg-color-page); /* 背景色 */
-  transition: all 0.3s ease; /* 过渡效果 */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  border: 2px solid #e8f4fd;
+  border-radius: 10px;
+  background: #f8f9fa;
+  transition: all 0.3s ease;
 }
 
 .saved-config-item:hover {
-  border-color: var(--el-color-primary); /* 悬停时边框颜色 */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); /* 悬停时阴影 */
+  border-color: #409eff;
+  background: #f0f9ff;
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(64, 158, 255, 0.2);
 }
 
 .saved-config-item.current {
-  border-color: var(--el-color-success); /* 当前配置的边框颜色 */
-  background-color: var(--el-color-success-light-9); /* 当前配置的背景色 */
+  border-color: #67c23a;
+  background: #f0f9ff;
 }
 
-/* 配置信息样式 */
 .config-info {
-  flex: 1; /* 占据剩余空间 */
+  flex: 1;
 }
 
 .provider-name {
-  font-weight: 600; /* 字体粗细 */
-  font-size: 1rem; /* 字体大小 */
-  margin-bottom: 4px; /* 下外边距 */
-  display: flex; /* 弹性布局 */
-  align-items: center; /* 垂直居中 */
-  gap: 8px; /* 间距 */
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .config-details {
-  display: flex; /* 弹性布局 */
-  flex-direction: column; /* 垂直排列 */
-  gap: 2px; /* 间距 */
-  font-size: 0.875rem; /* 字体大小 */
-  color: var(--el-text-color-secondary); /* 文本颜色 */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  font-size: 0.9rem;
+  color: #606266;
 }
 
-.model-name, .api-key {
-  font-family: 'Fira Code', monospace; /* 等宽字体 */
+.model-name, .api-key, .param-info {
+  background: #e8f4fd;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
 }
 
-/* 配置操作按钮样式 */
 .config-actions {
-  display: flex; /* 弹性布局 */
-  gap: 8px; /* 间距 */
+  display: flex;
+  gap: 8px;
 }
 
-/* 设置卡片样式 */
-.settings-card {
-  padding: 24px; /* 内边距 */
-  border-radius: 12px; /* 圆角 */
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* 阴影效果 */
-}
-
-/* 提供商选择器样式 */
-.provider-select {
-  width: 100%; /* 宽度占满 */
-}
-
-/* API 输入框和参数输入框内部字体样式 */
-.api-input,
-.param-input .el-input__inner { /* 确保数字输入框内部也应用字体 */
-  font-family: 'Fira Code', monospace; /* 字体 */
-}
-
-/* 参数输入框样式 */
-.param-input {
-    width: 100%; /* 让数字输入框占满列宽 */
-}
-
-/* MCP 配置操作按钮区域样式 */
-.mcp-config-actions {
-  margin-top: 10px; /* 上外边距 */
-  display: flex; /* 弹性布局 */
-  gap: 10px; /* 间距 */
-}
-
-/* 保存按钮样式 */
-.save-button {
-  margin-top: 20px; /* 上外边距 */
-  width: 100%; /* 宽度占满 */
-}
-
-/* 表单项样式 */
-.el-form-item {
-  margin-bottom: 24px; /* 下外边距 */
-}
-
-/* 调整数字输入框的样式 */
-.el-input-number {
-  width: 100%; /* 宽度占满 */
-}
-
-/* 配置文件路径设置样式 */
 .config-path-section {
-  margin-bottom: 24px; /* 下外边距 */
+  margin-bottom: 30px;
 }
 
 .section-title {
-  font-size: 1.2rem; /* 字体大小 */
-  font-weight: 600; /* 字体粗细 */
-  margin-bottom: 8px; /* 下外边距 */
-  color: var(--el-text-color-primary); /* 文本颜色 */
+  font-size: 1.3rem;
+  color: #2c3e50;
+  margin-bottom: 20px;
+  font-weight: 600;
 }
 
 .config-path-input {
-  display: flex; /* 弹性布局 */
-  gap: 10px; /* 间距 */
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
 }
 
 .path-input {
-  flex: 1; /* 占据剩余空间 */
+  flex: 1;
 }
 
 .path-info {
-  display: flex; /* 弹性布局 */
-  justify-content: space-between; /* 两端对齐 */
-  align-items: center; /* 垂直居中 */
-  margin-top: 10px; /* 上外边距 */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
 }
 
 .current-path {
-  font-size: 0.875rem; /* 字体大小 */
-  color: var(--el-text-color-secondary); /* 文本颜色 */
+  font-family: 'Courier New', monospace;
+  color: #606266;
+  font-size: 0.9rem;
 }
 
-/* 备份和恢复功能样式 */
 .backup-restore-section {
-  margin-bottom: 24px; /* 下外边距 */
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e4e7ed;
 }
 
 .subsection-title {
-  font-size: 1.2rem; /* 字体大小 */
-  font-weight: 600; /* 字体粗细 */
-  margin-bottom: 8px; /* 下外边距 */
-  color: var(--el-text-color-primary); /* 文本颜色 */
+  font-size: 1.1rem;
+  color: #2c3e50;
+  margin-bottom: 15px;
+  font-weight: 600;
 }
 
 .backup-actions {
-  display: flex; /* 弹性布局 */
-  gap: 10px; /* 间距 */
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.el-button[type="primary"], .el-button--primary {
-  background-color: #409EFF;
-  border-color: #409EFF;
-  color: #fff;
+.api-input {
+  font-family: 'Courier New', monospace;
 }
-.el-button[type="danger"], .el-button--danger {
-  background-color: #f56c6c;
-  border-color: #f56c6c;
-  color: #fff;
+
+.param-input {
+  width: 100%;
 }
-.el-button[type="info"], .el-button--info {
-  background-color: #909399;
-  border-color: #909399;
-  color: #fff;
+
+.save-button {
+  margin-top: 20px;
+  padding: 12px 30px;
+  font-size: 1.1rem;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  color: white;
+  font-weight: 600;
+  transition: all 0.3s ease;
 }
-.el-button[type="success"], .el-button--success {
-  background-color: #67c23a;
-  border-color: #67c23a;
-  color: #fff;
+
+.save-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
 }
-.el-button[type="warning"], .el-button--warning {
-  background-color: #e6a23c;
-  border-color: #e6a23c;
-  color: #fff;
-}
-.el-button {
-  border-radius: 8px;
-  margin-right: 12px;
-  margin-bottom: 8px;
-  font-weight: 500;
-  transition: background 0.2s, color 0.2s;
-}
-.el-button:last-child {
-  margin-right: 0;
+
+/* 编辑对话框样式 */
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style>

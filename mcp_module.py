@@ -102,6 +102,11 @@ class MCP:
     def get_configuration(self, name: str) -> Dict[str, Any]:
         """获取已保存的配置"""
         return self.configurations.get(name, {})
+    
+    # 获取所有已保存配置的方法
+    def get_all_configurations(self) -> Dict[str, Dict[str, Any]]:
+        """获取所有已保存的配置"""
+        return self.configurations.copy()
 
     # 添加提供商的方法
     def add_provider(self, name: str, config: Dict[str, Any]):

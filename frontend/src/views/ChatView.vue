@@ -6,6 +6,7 @@
       <div
         class="history-sidebar"
         :class="{ 'collapsed': historyCollapsed, 'auto-expanded': historyAutoExpand }"
+        :style="{ left: historySidebarLeft }"
         @mouseenter="expandHistory"
         @mouseleave="collapseHistory"
       >
@@ -92,7 +93,20 @@
       </div>
     </transition>
     
-    <div class="chat-content">
+    <div class="chat-content" :style="{ marginLeft: chatContentMargin }">
+      <!-- 历史记录浮动按钮 - 当侧边栏折叠时显示 -->
+      <div 
+        v-if="historyCollapsed && !historyAutoExpand" 
+        class="history-float-button" 
+        :style="{ left: historyFloatButtonLeft }"
+        @click="expandHistorySidebar"
+      >
+        <el-button type="primary" circle>
+          <el-icon><ChatDotRound /></el-icon>
+        </el-button>
+        <span class="float-button-tooltip">聊天历史</span>
+      </div>
+      
       <!-- 聊天容器 -->
       <div class="chat-container">
         <!-- 消息列表区域 -->
@@ -119,6 +133,39 @@
         
         <!-- 输入区域 -->
         <div class="input-area">
+          <!-- 配置切换区域 -->
+          <div class="config-switcher" v-if="savedConfigs && Object.keys(savedConfigs).length > 0">
+            <div class="config-switcher-header">
+              <span class="config-label">当前配置:</span>
+              <el-dropdown @command="switchConfig" trigger="click">
+                <el-button type="text" class="config-dropdown">
+                  <span class="current-config-name">{{ currentConfigName }}</span>
+                  <el-icon><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item 
+                      v-for="(config, providerName) in savedConfigs" 
+                      :key="providerName"
+                      :command="providerName"
+                      :class="{ 'current-config': providerName === currentProviderName }"
+                    >
+                      <div class="config-option">
+                        <span class="provider-name">{{ providerName }}</span>
+                        <span class="model-name">{{ config.model || '未设置模型' }}</span>
+                        <el-tag v-if="providerName === currentProviderName" type="success" size="small">当前</el-tag>
+                      </div>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button type="text" size="small" @click="goToSettings">
+                <el-icon><Setting /></el-icon>
+                管理配置
+              </el-button>
+            </div>
+          </div>
+          
           <!-- 文本输入框 -->
           <el-input
             v-model="inputMessage"
@@ -158,7 +205,7 @@
 
 <script>
 import axios from 'axios'; // 导入 axios 用于 HTTP 请求
-import { Plus, ArrowLeft, ArrowRight, Star, More } from '@element-plus/icons-vue'; // 导入图标
+import { Plus, ArrowLeft, ArrowRight, Star, More, ArrowDown, Setting, ChatDotRound } from '@element-plus/icons-vue'; // 导入图标
 
 export default {
   name: 'ChatView', // 组件名称
@@ -167,7 +214,10 @@ export default {
     ArrowLeft,
     ArrowRight,
     Star,
-    More
+    More,
+    ArrowDown,
+    Setting,
+    ChatDotRound
   },
   data() { // 组件数据
     return {
@@ -184,6 +234,9 @@ export default {
       newHistoryTitle: '', // 新的历史记录标题
       historyToRename: null, // 要重命名的历史记录ID
       sidebarExpanded: false, // 新增，响应SidebarNav展开状态
+      savedConfigs: {}, // 存储配置
+      currentConfigName: '', // 当前配置名称
+      currentProviderName: '', // 当前配置提供者
     };
   },
   mounted() {
@@ -192,6 +245,9 @@ export default {
     console.log('聊天页面已加载，聊天历史功能暂未实现');
     // 监听SidebarNav展开状态
     window.addEventListener('sidebar-nav-toggle', this.handleSidebarToggle)
+    
+    // 加载已保存的配置
+    this.loadSavedConfigs();
   },
   beforeUnmount() {
     window.removeEventListener('sidebar-nav-toggle', this.handleSidebarToggle)
@@ -440,13 +496,84 @@ export default {
         this.historyAutoExpand = false
       }
     },
+    expandHistorySidebar() {
+      // 展开历史侧边栏
+      this.historyCollapsed = false
+      this.historyAutoExpand = false
+    },
     handleSidebarToggle(e) {
       this.sidebarExpanded = !!e.detail
     },
+    async switchConfig(providerName) {
+      try {
+        // 调用后端API切换配置
+        await axios.post('/switch_provider', {
+          provider_name: providerName,
+          config: this.savedConfigs[providerName]
+        });
+        
+        this.currentProviderName = providerName;
+        this.currentConfigName = providerName;
+        this.$message.success(`已切换到 ${providerName} 配置`);
+      } catch (error) {
+        console.error('切换配置失败:', error);
+        let errorMsg = '切换配置失败';
+        if (error.response?.data?.detail) {
+          errorMsg = error.response.data.detail;
+        }
+        this.$message.error(errorMsg);
+      }
+    },
+    goToSettings() {
+      // 实现跳转到配置管理页面的逻辑
+      console.log('跳转到配置管理页面');
+      this.$router.push('/settings');
+    },
+    // 加载已保存的配置
+    async loadSavedConfigs() {
+      try {
+        const response = await axios.get('/chat/configs');
+        if (response.data.status === 'success') {
+          this.savedConfigs = response.data.configs || {};
+          this.currentProviderName = response.data.current_provider || '';
+          
+          // 设置当前配置名称
+          if (this.currentProviderName && this.savedConfigs[this.currentProviderName]) {
+            this.currentConfigName = this.currentProviderName;
+          } else if (Object.keys(this.savedConfigs).length > 0) {
+            // 如果没有当前配置，使用第一个配置
+            this.currentConfigName = Object.keys(this.savedConfigs)[0];
+            this.currentProviderName = this.currentConfigName;
+          }
+        }
+      } catch (error) {
+        console.log('加载配置失败:', error);
+        this.$message.info('加载配置失败');
+      }
+    },
   },
   computed: {
-    historySidebarMargin() {
-      return this.sidebarExpanded ? '160px' : '56px'
+    chatContentMargin() {
+      // 基础边距（为导航栏预留）
+      const baseMargin = this.sidebarExpanded ? 160 : 56;
+      
+      // 如果历史侧边栏展开或自动展开，添加侧边栏宽度
+      if (!this.historyCollapsed || this.historyAutoExpand) {
+        // 如果是折叠状态但自动展开，使用较小的宽度
+        const sidebarWidth = this.historyCollapsed && this.historyAutoExpand ? 220 : 280;
+        return `${baseMargin + sidebarWidth}px`;
+      }
+      
+      // 如果历史侧边栏完全折叠，只返回基础边距
+      return `${baseMargin}px`;
+    },
+    historySidebarLeft() {
+      // 根据主导航栏的展开状态调整历史侧边栏的位置
+      return this.sidebarExpanded ? '160px' : '56px';
+    },
+    historyFloatButtonLeft() {
+      // 根据主导航栏的展开状态调整浮动按钮的位置
+      return this.sidebarExpanded ? '184px' : '80px';
     }
   }
 };
@@ -456,45 +583,49 @@ export default {
 /* 聊天主容器样式 */
 .chat-main-container {
   display: flex;
-  height: calc(100vh - 0px);
+  height: 100vh;
   background: #f8f9fa;
-  flex-direction: row;
+  position: relative;
+  overflow: hidden;
 }
 
 .chat-content {
   flex: 1;
-  margin-left: 56px; /* 预留导航栏宽度 */
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  transition: margin-left 0.3s cubic-bezier(.4,0,.2,1);
+  will-change: margin-left;
 }
 
 /* 历史记录侧边栏样式 */
 .history-sidebar {
-  margin-left: 56px;
-  /* 改为动态绑定style */
+  position: fixed;
+  top: 0;
+  bottom: 0;
   width: 280px;
   border-right: 1px solid #e6e6e6;
   background: white;
-  transition: width 0.3s cubic-bezier(.4,0,.2,1), margin-left 0.3s cubic-bezier(.4,0,.2,1);
+  transition: width 0.3s cubic-bezier(.4,0,.2,1), left 0.3s cubic-bezier(.4,0,.2,1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  position: relative;
+  z-index: 999; /* 低于主导航栏 */
+  box-shadow: 2px 0 8px 0 rgba(0,0,0,0.1);
+  will-change: width, left;
 }
 
 .history-sidebar.collapsed:not(.auto-expanded) {
   width: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .history-sidebar.auto-expanded {
   width: 220px;
   min-width: 180px;
   box-shadow: 2px 0 8px 0 rgba(0,0,0,0.04);
-}
-
-.history-slide-enter-active, .history-slide-leave-active {
-  transition: width 0.3s cubic-bezier(.4,0,.2,1);
 }
 
 /* 侧边栏头部样式 */
@@ -688,4 +819,109 @@ export default {
   justify-content: flex-end;
   margin-top: 20px;
 }
+
+/* 配置切换区域样式 */
+.config-switcher {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
+}
+
+.config-switcher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.config-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c3e50;
+  white-space: nowrap;
+}
+
+.config-dropdown {
+  padding: 4px 8px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  background: white;
+  color: #606266;
+  transition: all 0.3s ease;
+}
+
+.config-dropdown:hover {
+  border-color: #409eff;
+  color: #409eff;
+}
+
+.current-config-name {
+  margin-right: 8px;
+  font-weight: 500;
+}
+
+.config-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 0;
+}
+
+.provider-name {
+  margin-right: 8px;
+  font-weight: 500;
+}
+
+.model-name {
+  font-size: 12px;
+  color: #909399;
+  margin-right: 8px;
+}
+
+.current-config {
+  background-color: #e6f7ff;
+}
+
+.current-config .provider-name {
+  color: #409eff;
+  font-weight: 600;
+}
+
+/* 历史记录浮动按钮样式 */
+.history-float-button {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 998;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+}
+
+.history-float-button:hover {
+  transform: translateY(-50%) scale(1.1);
+}
+
+.float-button-tooltip {
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.history-float-button:hover .float-button-tooltip {
+  opacity: 1;
+}
+
+
 </style>
