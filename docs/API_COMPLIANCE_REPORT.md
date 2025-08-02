@@ -44,7 +44,25 @@
 **修复后的改进:**
 ```python
 # 正确的API端点
-api_url = f"{self.base_url}/api/v1/services/aigc/text-generation/generation"
+api_url = f"{self.base_url}/api/v1/services/aigc/chat/completions"
+
+# 正确的请求体结构 - messages作为顶层字段
+payload = {
+    "model": model,
+    "messages": valid_messages,  # 顶层字段，不是嵌套在input中
+    "parameters": {
+        "result_format": "message",
+        "temperature": temperature,
+        "top_p": top_p,
+        "max_tokens": max_tokens
+    }
+}
+
+# 正确的响应解析 - choices在顶层
+if 'choices' in result and result['choices']:
+    choice = result['choices'][0]
+    if 'message' in choice and 'content' in choice['message']:
+        return choice['message']['content']
 
 # 完整的错误处理
 if response.status != 200:

@@ -85,6 +85,12 @@ BaiyuAISpace/
 - Node.js 16+
 - pnpm (推荐) 或 npm
 
+### 最新修复 (2025-01-XX)
+- ✅ 修复了阿里云通义千问适配器API调用不合规问题 ([Issue #1](https://github.com/baiyuheniao/BaiyuAISpace/issues/1))
+  - 修正API端点路径为官方规范
+  - 调整请求体结构，messages作为顶层字段
+  - 修正响应解析逻辑，符合官方API格式
+
 ### 安装步骤
 
 1. **克隆项目**
@@ -235,7 +241,7 @@ pnpm run serve
 /多智能体配置保存
 /MCP调用安全机制
 /原生自带文件调用、联网搜索
-/多种文件支持（图片、视频，如果调用的模型支持）
+/
 
 ## 技术栈 | Tech Stack
 **前端**  

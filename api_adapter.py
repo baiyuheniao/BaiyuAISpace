@@ -893,9 +893,7 @@ class AliyunAdapter(BaseAdapter):
             # 构建请求体 payload - 使用正确的阿里云通义千问API格式
             payload = {
                 "model": model,  # 模型名称
-                "input": {
-                    "messages": valid_messages  # 消息列表
-                },
+                "messages": valid_messages,  # 消息列表作为顶层字段
                 "parameters": {
                     "result_format": "message",
                     "temperature": temperature,
@@ -904,14 +902,14 @@ class AliyunAdapter(BaseAdapter):
                 }
             }
             if file_urls:
-                payload["input"]["images"] = file_urls
+                payload["images"] = file_urls
             
             try:
                 logger.debug(f"向阿里云通义千问发送请求: {model}, 消息数: {len(valid_messages)}")
                 
                 # 发送 POST 请求到阿里云通义千问的正确API端点
                 async with session.post(
-                    f"{self.base_url}/api/v1/services/aigc/text-generation/generation",
+                    f"{self.base_url}/api/v1/services/aigc/chat/completions",
                     json=payload,
                     headers=self.headers,
                     timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
@@ -936,9 +934,9 @@ class AliyunAdapter(BaseAdapter):
                         logger.error(f"阿里云API返回错误: {result['code']} - {error_msg}")
                         raise Exception(f"阿里云API返回错误: {result['code']} - {error_msg}")
                     
-                    # 检查响应格式并提取内容
-                    if 'output' in result and 'choices' in result['output'] and result['output']['choices']:
-                        choice = result['output']['choices'][0]
+                    # 检查响应格式并提取内容 - 根据官方API文档，choices在顶层
+                    if 'choices' in result and result['choices']:
+                        choice = result['choices'][0]
                         if 'message' in choice and 'content' in choice['message']:
                             return choice['message']['content']
                     
