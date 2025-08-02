@@ -421,6 +421,9 @@ async def restore_config(backup_data: dict):
         # 保存配置
         mcp.save_configurations()
         
+        # 根据恢复的配置创建适配器实例
+        mcp._create_providers_from_config()
+        
         return {
             "status": "success",
             "message": "配置恢复成功",

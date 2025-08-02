@@ -1,10 +1,9 @@
 {
   "configurations": {
     "硅基流动": {
-      "api_key": "sk-pfuheaclxikegudowrqzurklagjdnphmydhrzzfeedbaicjc",
-      "model": "Qwen/Qwen3-8B",
-      "temperature": 1,
-      "base_url": "https://api.siliconflow.cn/v1"
+      "api_key": "test_key",
+      "model": "test_model",
+      "base_url": "https://api.siliconflow.cn"
     }
   },
   "current_provider": "硅基流动"

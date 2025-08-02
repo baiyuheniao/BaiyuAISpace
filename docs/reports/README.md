@@ -9,6 +9,8 @@ reports/
 ├── README.md                    # 本文档
 ├── bug_fixes/                   # Bug修复报告
 │   ├── aliyun_api_compliance_fix.md  # 阿里云API合规性修复报告
+│   ├── provider_not_found_fix.md     # 提供商不存在问题修复报告
+│   ├── api_adapter_comprehensive_analysis.md  # API适配器全面分析报告
 │   ├── api_adapter_fixes.md    # API适配器修复报告
 │   ├── layout_issues.md        # 布局问题修复报告
 │   └── configuration_bugs.md   # 配置管理Bug修复报告

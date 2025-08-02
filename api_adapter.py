@@ -52,6 +52,15 @@ class OllamaAdapter(BaseAdapter):
 
     # 实现 chat_completion 抽象方法，用于与 Ollama 服务进行聊天补全
     async def chat_completion(self, messages: list, model: str) -> str:
+        # 验证输入
+        if not messages or not isinstance(messages, list):
+            logger.error("Ollama请求错误: 消息列表为空或格式不正确")
+            raise ValueError("消息列表为空或格式不正确")
+            
+        if not model or not isinstance(model, str):
+            logger.error("Ollama请求错误: 模型名称无效")
+            raise ValueError("模型名称无效")
+        
         # 使用 aiohttp.ClientSession 创建一个异步 HTTP 客户端会话
         async with aiohttp.ClientSession() as session:
             # 构建请求体 payload
@@ -60,18 +69,43 @@ class OllamaAdapter(BaseAdapter):
                 "messages": messages,  # 消息列表
                 "stream": False  # 不使用流式传输
             }
+            
             try:
+                logger.debug(f"向Ollama发送请求: {model}, 消息数: {len(messages)}")
+                
                 # 发送 POST 请求到 Ollama 的 /api/chat 接口
                 async with session.post(
                     f"{self.base_url}/api/chat",
-                    json=payload
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(60)  # 添加超时设置
                 ) as response:
+                    response_text = await response.text()
+                    
+                    # 检查响应状态码
+                    if response.status != 200:
+                        logger.error(f"Ollama请求失败，状态码: {response.status}，详情: {response_text}")
+                        raise Exception(f"Ollama API请求失败: {response.status} - {response_text}")
+                    
                     # 解析 JSON 响应
-                    result = await response.json()
-                    # 返回聊天补全结果
-                    return result['message']['content']
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"Ollama响应JSON解析失败: {str(e)}, 原始响应: {response_text}")
+                        raise ValueError(f"无法解析Ollama API响应: {str(e)}")
+                    
+                    # 检查响应格式并提取内容
+                    if 'message' in result and 'content' in result['message']:
+                        return result['message']['content']
+                    
+                    logger.error(f"无法从Ollama响应中提取文本内容: {result}")
+                    return ""
+                    
+            except aiohttp.ClientError as e:
+                # 捕获 aiohttp 客户端错误
+                logger.error(f"Ollama请求客户端错误: {str(e)}")
+                raise
             except Exception as e:
-                # 捕获异常并记录错误日志
+                # 捕获其他未知异常并记录错误日志
                 logger.error(f"Ollama请求失败: {str(e)}")
                 # 重新抛出异常
                 raise

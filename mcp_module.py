@@ -72,6 +72,9 @@ class MCP:
                     print(f"已加载配置: {len(self.configurations)} 个提供商")
                     if self.current_provider:
                         print(f"当前提供商: {self.current_provider}")
+                    
+                    # 根据加载的配置自动创建适配器实例
+                    self._create_providers_from_config()
             else:
                 print("配置文件不存在，将创建新的配置")
         except Exception as e:
@@ -187,6 +190,25 @@ class MCP:
         
         print(f"提供商 {name} 添加成功")
 
+    def _create_providers_from_config(self):
+        """根据配置文件中的配置自动创建适配器实例"""
+        print("正在根据配置创建适配器实例...")
+        for provider_name, config in self.configurations.items():
+            try:
+                # 检查是否已经存在该提供商的适配器实例
+                if provider_name not in self.providers:
+                    print(f"为配置的提供商 {provider_name} 创建适配器实例...")
+                    self.add_provider(provider_name, config)
+                else:
+                    print(f"提供商 {provider_name} 的适配器实例已存在，跳过创建")
+            except Exception as e:
+                print(f"为提供商 {provider_name} 创建适配器实例失败: {str(e)}")
+                # 如果创建失败，从配置中移除该提供商
+                if provider_name == self.current_provider:
+                    print(f"当前提供商 {provider_name} 创建失败，清除当前提供商设置")
+                    self.current_provider = None
+        print(f"适配器实例创建完成，当前共有 {len(self.providers)} 个提供商")
+
     # 切换当前使用的 LLM 服务的方法
     def switch_current_provider(self, name: str):
         """切换当前使用的LLM服务"""
@@ -287,4 +309,8 @@ class MCP:
             raise ValueError("导入的配置必须是字典格式")
         self.configurations.update(config)  # 更新配置
         self.save_configurations()  # 保存配置
+        
+        # 根据导入的配置创建适配器实例
+        self._create_providers_from_config()
+        
         logger.info("MCP配置已成功导入")  # 记录日志
